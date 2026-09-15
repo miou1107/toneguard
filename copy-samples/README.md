@@ -11,7 +11,7 @@
 |---|---|---|
 | `vin-raw-messages.jsonl` | 他歷來打給我的中文原文，5,681 則 | `copy-voice-inject.py` 每一輪追加 |
 | `sources/` | 他自己寫的文件（88 頁菲律賓研究等） | 手動放進來 |
-| `vin-corpus.txt` | 上面兩份清乾淨之後的句子，10.7 萬字 | `build_vin_corpus.py` |
+| `vin-corpus.txt` | 上面兩份清乾淨之後的句子，41.9 萬字（正式語體 31.8 萬字另存 vin-corpus-formal.txt） | `build_vin_corpus.py` |
 | `rejected.jsonl` | 他退我稿的紀錄：我寫了什麼、他說要改成什麼 | 同上 |
 | `coined-terms.json` | 他親口退過的 40 個詞，加 40 個還沒確認的候選 | 手動 ＋ `mine_candidates.py` |
 | `copy-patterns.json` | 那些詞歸納出來的 6 種寫法 | 手動 |
