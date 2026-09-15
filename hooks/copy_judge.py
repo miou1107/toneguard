@@ -2,7 +2,7 @@
 """
 copy_judge.py — 語意層的第二個讀者。
 
-為什麼要有：查表那一關只擋得到白紙黑字的用詞。拿 Vin 真的退過的句子量過，
+為什麼要有：查表那一關只擋得到白紙黑字的用詞。拿 Vin 真的退過的句子統計過，
 它抓得到的只有 25.4%（~/.claude/copy-samples/eval.py 跑得出來）。剩下的四分之三
 是主詞不見了、祈使句指揮讀者、用比喻、整段沒有連接詞、這一段沒回答讀者的問題 ——
 這幾種要讀懂句子才判得出來，掃字掃不到。
@@ -39,14 +39,20 @@ SKIP_PATH = re.compile(
     r"(CLAUDE\.md|AGENTS\.md|/\.claude/(hooks|skills|plugins|projects|state|"
     r"commands|agents|settings)|copy-samples|coined-terms|copy-patterns|"
     r"vin-corpus|vin-raw-messages|rejected\.jsonl|情境目錄|"
-    r"CHANGELOG|FILELIST|DECISION_LOG|METHODOLOGY|DATA_INVENTORY|"
+    r"FILELIST|DECISION_LOG|METHODOLOGY|DATA_INVENTORY|"
     r"/tests?/|_test\.|\.test\.)")
+
+UI_EXT = {".tsx", ".jsx", ".ts", ".js", ".vue", ".svelte", ".html"}
+UI_PENDING = STATE / "ui-pending.jsonl"
+UI_MIN = 6            # 按鈕上兩三個字不值得問
+UI_QUESTION = ("讀的人是使用者，他正卡在畫面上。他心裡只有一個問題："
+               "我現在要做什麼、接下來會發生什麼。")
 
 RUBRIC_FILE = SAMPLES / "judge-rubric.txt"   # tune_judge.py 會改這一份
 
 
 def rubric():
-    """判官的規則放在檔案裡，不寫死在程式，以避免每調一次語氣就要改程式。
+    """語意判官的規則放在檔案裡，不寫死在程式，以避免每調一次語氣就要改程式。
     tune_judge.py 用考題自動改它，改壞了會被分數擋下來。"""
     return RUBRIC_FILE.read_text(encoding="utf-8")
 
@@ -82,16 +88,16 @@ def examples():
 
 THRESHOLD = 7   # 難懂度到幾分才算要處理；由 judge_exam.py 從考題算出來
 
-# 逐句數主詞。六條判準全在查「有沒有」，沒有一條查「是誰」，
+# 逐句數主詞。六條規則全在查「有沒有」，沒有一條查「是誰」，
 # 所以一段「每句都有主詞、都有連接詞、沒有檔名」的工作紀錄照樣全過。
 # 2026-09-15 量到：他當場說看不懂的那一段，十五句裡十四句的主詞是
 # 模型、檢查、規則、某一版或我。
 # 窄的那一版：只認審查者、規則、以及我這一輪自己取的名字。
-# 在六千則考題上量過，打到他抱怨過的 3.2%、只誤打沒抱怨的 0.3%。
+# 在六千則考題上統計過，打到他抱怨過的 3.2%、只誤打沒抱怨的 0.3%。
 # 涵蓋很低，所以它只能用來「一打到就加重」，不能當通則 ——
 # 寬的版本會把他沒抱怨的那幾則也一起推高（6.8 對 7.2，完全分不開）。
 NOT_PERSON = re.compile(
-    r"^(?:它|agy|fable|判官|審查|檢查|規則|語調守門員|語調守門員|考題|語料|模型|"
+    r"^(?:它|agy|fable|語意判官|判官|守門員|審查|檢查|規則|文筆守門員|文筆守門員|考題|語料|模型|"
     r"[A-Z] ?版|這一?[版則輪]|那一?[版則輪]|分數)")
 IS_PERSON = re.compile(r"^(?:你|他|她|旅客|客人|司機|後台同事|同事|業務|讀者|使用者|主管)")
 
@@ -129,8 +135,8 @@ def threshold():
 
 def reader_questions(path):
     """文件沒有「他問的那一句」，讀者心裡的問題就在情境目錄裡。
-    少了這一段，判官對文件會整個判反：2026-09-15 量到他親手寫的那份拿 8 分、
-    我的爛稿拿 1 分，因為第一條判準沒有東西可以對照。"""
+    少了這一段，語意判官對文件會整個判反：2026-09-15 量到他親手寫的那份拿 8 分、
+    我的爛稿拿 1 分，因為第一條規則沒有東西可以對照。"""
     try:
         sys.path.insert(0, str(HOME / ".claude" / "copy-rules"))
         import scenario as sc
@@ -152,7 +158,7 @@ def judge(text, question=""):  # noqa: C901
     只看稿判不出來 —— 2026-09-15 考出來的分數是反的，被抱怨的那幾段還比較低分。"""
     g, b = examples()
     q = (f"=== 讀的人想知道的是 ===\n{question[:600]}\n\n" if question.strip() else
-         "=== 讀的人想知道的是 ===\n（沒有指定，第 1 條判準跳過，"
+         "=== 讀的人想知道的是 ===\n（沒有指定，第 1 條規則跳過，"
          "只看第 2 到第 6 條）\n\n")
     prompt = (rubric().replace("{GOOD}", g).replace("{BAD}", b)
               + "\n\n" + q + "=== 要檢查的稿 ===\n" + text[:12000])
@@ -191,12 +197,12 @@ def judge(text, question=""):  # noqa: C901
 
 
 def may_block(is_reply):
-    """考不過就不准擋人，只准提醒。判官自己也會判錯，而且錯得很像對的：
+    """考不過就不准擋人，只准提醒。語意判官自己也會判錯，而且錯得很像對的：
     第一次考試抓到率只有 10%、誤擋率 20%，比不裝還糟。
 
-    而且考過的範圍只有回話：那 70% 是拿「他問一句、我回一段」量出來的。
-    文件沒有他當場問的那一句，只能拿情境目錄裡讀者的問題代替，準不準還沒量過，
-    所以文件這一側先只提醒，以避免一個沒量過的判斷擋住要交出去的東西。"""
+    而且考過的範圍只有回話：那 70% 是拿「他問一句、我回一段」統計出來的。
+    文件沒有他當場問的那一句，只能拿情境目錄裡讀者的問題代替，準不準還沒驗證過，
+    所以文件這一側先只提醒，以避免一個沒驗證過的判斷擋住要交出去的東西。"""
     if not is_reply:
         return False
     try:
@@ -273,6 +279,22 @@ def from_hook():
         except Exception:
             return None, "", ""
     ti = payload.get("tool_input") or {}
+
+    # 留言、開單、提交訊息也是給人讀的一段文字，不是只有改檔案才要判。
+    if payload.get("tool_name") == "Bash":
+        cmd = ti.get("command") or ""
+        try:
+            sys.path.insert(0, str(HOME / ".claude" / "hooks"))
+            import coined_word_guard as g
+            if not g.OUTWARD.search(cmd) or g.SELFTEST.search(cmd):
+                return None, "", ""
+            sent = [(m.group("v") or m.group("v2") or "")
+                    for m in g.ARGTEXT.finditer(cmd)]
+            body = "\n".join(x for x in sent if x) or cmd
+        except Exception:
+            return None, "", ""
+        return body, "（這段字會送出去給別人讀）", ""
+
     path = ti.get("file_path") or ti.get("notebook_path") or ""
     if path and SKIP_PATH.search(path):
         return None, "", ""
@@ -281,11 +303,62 @@ def from_hook():
     for e in (ti.get("edits") or []):
         if isinstance(e, dict) and isinstance(e.get("new_string"), str):
             chunks.append(e["new_string"])
-    return ("\n".join(chunks) or None), path, ""
+    text = "\n".join(chunks) or None
+    # 畫面上的字通常只有十幾個，永遠到不了 MIN_ZH，所以以前一次都沒被讀過。
+    # 每改一句按鈕就等一次模型又太慢（一次最多 150 秒），
+    # 所以這裡先收起來，等這一輪結束再一起判一次。
+    if text and path and pathlib.Path(path).suffix.lower() in UI_EXT:
+        n = len(ZH.findall(text))
+        if UI_MIN <= n < MIN_ZH:
+            keep_ui(path, text)
+            return None, "", ""
+    return text, path, ""
+
+
+def keep_ui(path, text):
+    try:
+        UI_PENDING.parent.mkdir(parents=True, exist_ok=True)
+        with UI_PENDING.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"path": path, "text": text[:600]},
+                               ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def flush_ui():
+    """一輪結束的時候，把這一輪改過的畫面文字一起送一次。只提醒，不擋。"""
+    try:
+        rows = [json.loads(x) for x in
+                UI_PENDING.read_text(encoding="utf-8").splitlines() if x.strip()]
+    except Exception:
+        return
+    try:
+        UI_PENDING.unlink()
+    except Exception:
+        pass
+    if not rows:
+        return
+    body = "\n".join(f"［{pathlib.Path(r['path']).name}］{r['text']}" for r in rows)
+    if len(ZH.findall(body)) < UI_MIN:
+        return
+    score, issues, err = judge(body, UI_QUESTION)
+    if err or not issues:
+        return
+    out = [f"［讀者審查］這一輪改了 {len(rows)} 處畫面上的字，另一個讀者有 "
+           f"{len(issues)} 處意見（畫面文字這一側還沒驗證過準不準，所以只提醒）："]
+    for i in issues[:5]:
+        out.append(f"   原文：{str(i.get('quote', ''))[:50]}")
+        out.append(f"   壞在：{str(i.get('why', ''))[:70]}")
+        out.append(f"   改成：{str(i.get('fix', ''))[:80]}")
+    print("\n".join(out))
 
 
 def main():
     argv = sys.argv[1:]
+    if "--ui-flush" in argv:
+        if not os.environ.get("COPY_JUDGE_OFF"):
+            flush_ui()
+        sys.exit(0)
     question = argv[argv.index("--question") + 1] if "--question" in argv else ""
     if "--file" in argv:
         path = argv[argv.index("--file") + 1]
@@ -333,7 +406,7 @@ def main():
     blocking = may_block(is_reply)
     log("退回" if blocking else "提醒", path, len(issues))
     head = ("退回" if blocking
-            else "有意見（文件這一側還沒量過準不準，所以只提醒）" if not is_reply
+            else "有意見（文件這一側還沒驗證過準不準，所以只提醒）" if not is_reply
             else "有意見（它自己考試沒過，所以只提醒）")
     lines = [f"［讀者審查］難懂度 {score} 分，另一個讀者{head} {len(issues)} 處"
              + (f"　{path}" if path else "") + "："]

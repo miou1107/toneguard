@@ -2,12 +2,13 @@
 """
 build_gold.py — 把「他抱怨的那一則，加上我前一則的稿」整理成考題。
 
-判官自己也會判錯。沒有考題就沒辦法知道它到底準不準，
+語意判官自己也會判錯。沒有考題就沒辦法知道它到底準不準，
 用它來評稿等於再加一個會自我感覺良好的人。
 
 考題有兩邊：
-    bad   他下一句就抱怨的那一段（我寫的）
-    good  他自己打的長訊息（他寫的）
+    bad      他下一句就抱怨的那一段（我寫的）
+    good     我寫的、而且他親口說好的那幾段（approved.jsonl）
+    unknown  我寫的、他當下沒說話的那幾段。沒說話不等於寫得好，所以不進考試
 
 用法：python3 build_gold.py        # 產生 gold.jsonl
 """
@@ -22,6 +23,8 @@ ZH = re.compile(r"[一-鿿]")
 
 COMPLAIN = re.compile(
     r"聽不懂|看不懂|看不下去|不知道你在(?:寫|說|講)|"
+    r"文筆.{0,8}(?:爛|差|不好|很糟)|寫的東西.{0,12}(?:爛|差|不好|讀不懂|看不懂)|"
+    r"一般人.{0,6}(?:讀不懂|看不懂)|不是一般人.{0,6}(?:讀|看)得懂|潤稿|"
     r"文案.{0,8}(?:爛|差|不好|很糟)|自己發明|自創|零碎|破碎|不是台灣人|"
     r"講話.{0,6}(?:聽不懂|很累)|太長了|你為何不能講清楚|我聽不懂")
 MACHINE = re.compile(r"hook feedback|<system-reminder>|<command-name>|Caveat:|"
@@ -83,15 +86,18 @@ def main():
                                      "question": " ".join(prev_ai_q.split())[:400],
                                      "complaint": " ".join(s.split())[:120],
                                      "source": f.parent.name})
-                # 對照組要跟被抱怨的那一邊是同一種東西：一樣是我寫的稿，
-                # 差別只在他有沒有抱怨。拿他自己打的訊息當對照，判官分辨的是
-                # 誰寫的，不是好不好 —— 2026-09-15 第一版就是這樣壞掉的。
+                # 他沒抱怨的那一疊，只能標成「不知道」，不可以標成「寫得好」。
+                # Vin 2026-09-15 的原話：「我沒有說好，並不代表你的文法是好範例，
+                # 有可能只是我懶得說、有其他重要的事情要跟你溝通，所以才沒提」。
+                # 同一天他親手改了我十三句，那十三句當下他都沒說話。
+                # 另外對照組要跟被抱怨的那一邊是同一種東西：一樣是我寫的稿。
+                # 拿他自己打的訊息當對照，語意判官分辨的是誰寫的，不是好不好。
                 elif (60 <= len(ZH.findall(prev_ai)) <= 900
                       and len(s) <= 120 and not COMPLAIN.search(s)):
                     k = prev_ai[:60]
                     if k not in seen:
                         seen.add(k)
-                        rows.append({"label": "good", "text": prev_ai[:2000],
+                        rows.append({"label": "unknown", "text": prev_ai[:2000],
                                      "question": " ".join(prev_ai_q.split())[:400],
                                      "complaint": "", "source": f.parent.name})
     # 他當場說看不懂的那幾則，是最準的考題：標註是他自己下的，不是猜的
@@ -110,11 +116,32 @@ def main():
                              "source": "他當場說的"})
                 n_live += 1
 
+    # 他親口說好的那幾段：這是唯一確定的正面樣本，而且是我寫的，
+    # 所以語意判官不會學成「分辨誰寫的」。
+    ok = HOME / ".claude" / "copy-samples" / "approved.jsonl"
+    n_ok = 0
+    if ok.exists():
+        for line in ok.read_text(encoding="utf-8").splitlines():
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            # kind 分兩種：「寫得好」是他說這段文字好，「判斷對」是他同意我的看法。
+            # 只有前者能當正面樣本 —— 他說我判斷對，不代表那段話寫得好。
+            # Vin 2026-09-15：「對，你說的對」那一句誇的是結論，不是文筆。
+            if d.get("text") and d.get("kind", "寫得好") == "寫得好":
+                rows.append({"label": "good", "text": d["text"],
+                             "question": d.get("question", ""),
+                             "complaint": "", "source": "他親口說好的"})
+                n_ok += 1
+
     nb = sum(1 for r in rows if r["label"] == "bad")
+    ng = sum(1 for r in rows if r["label"] == "good")
+    nu = sum(1 for r in rows if r["label"] == "unknown")
     OUT.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
                    encoding="utf-8")
-    print(f"gold.jsonl　他抱怨過的稿 {nb} 段（其中 {n_live} 段是他當場說的）、"
-          f"對照組 {len(rows) - nb} 段")
+    print(f"gold.jsonl　他抱怨過的 {nb} 段（其中 {n_live} 段是他當場說的）、"
+          f"他親口說好的 {ng} 段、他當下沒說話的 {nu} 段（標成不知道，不進考試）")
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ REJECTED = HERE / "rejected.jsonl"
 ARROW = re.compile(r"\s*(?:-->|->|→)\s*")
 # 引號裡的字多半是他在引用我寫的，或引用畫面上的既有文字，不是他自己的說法
 QUOTED = re.compile(r"[「『][^」』]{1,40}[」』]")
-# 這幾種根本不是他打的：語調守門員的回報、系統提示、指令輸出、錯誤訊息。
+# 這幾種根本不是他打的：文筆守門員的回報、系統提示、指令輸出、錯誤訊息。
 # 存進語料的下場是我自己的用字變成「他寫過的詞」——2026-09-15 查出 7,659 個中文字。
 MACHINE = re.compile(
     r"hook feedback|<system-reminder>|<command-name>|<local-command|Caveat:|"

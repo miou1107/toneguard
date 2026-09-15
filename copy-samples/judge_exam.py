@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-judge_exam.py — 考判官，順便決定門檻要訂幾分。
+judge_exam.py — 考語意判官，順便決定門檻要訂幾分。
 
-判官現在給的是「讀的人要回頭重讀幾次才懂」的分數，不是自己決定要不要退。
+語意判官現在給的是「讀的人要回頭重讀幾次才懂」的分數，不是自己決定要不要退。
 幾分才算要處理，由考題決定，不由它決定。
 
 考題兩邊都是我寫的稿，差別只在使用者當場有沒有抱怨。拿他自己打的訊息當對照組
-會壞掉：兩邊文體不一樣，判官分辨的是誰寫的，不是好不好（2026-09-15 踩過）。
+會壞掉：兩邊文體不一樣，語意判官分辨的是誰寫的，不是好不好（2026-09-15 踩過）。
 
 用法：
     python3 judge_exam.py --n 12
@@ -66,7 +66,7 @@ def main():
     t, _, rc, fp = best
     print(f"\n門檻訂 {t} 分最好：抓到 {rc:.0f}%、誤判 {fp:.0f}%")
     ok = rc >= 70 and fp <= 15
-    print("判官" + ("考過了，可以擋人。" if ok else "還是考不過，維持只提醒。"))
+    print("語意判官" + ("考過了，可以擋人。" if ok else "還是考不過，維持只提醒。"))
     CARD.write_text(json.dumps({"n": n, "seed": seed, "threshold": t,
                                 "recall": rc, "fp": fp, "pass": ok,
                                 "bad_scores": sorted(bs), "good_scores": sorted(gs)},

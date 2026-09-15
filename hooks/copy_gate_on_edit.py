@@ -5,7 +5,7 @@
 其他出口沒人守 —— 程式裡的按鈕字、空狀態、錯誤訊息、mockup 的 HTML、報告的 md。
 那幾種被我認成「寫程式」「做畫面」，於是「我在寫文案」在腦中從來沒被觸發。
 
-判準不是我記不記得，是這次編輯有沒有新增或改到引號裡的中文。
+規則不是我記不記得，是這次編輯有沒有新增或改到引號裡的中文。
 """
 import json
 import os
@@ -27,8 +27,10 @@ PROSE_EXT = {".html", ".htm", ".md"}
 EXEMPT = (
     "/.claude/", "/CLAUDE.md", "/AGENTS.md", "/node_modules/",
     "/docs/verification/", "/copy-samples/", "/copy-checklists/",
-    "/.git/", "/openspec/",
+    "/.git/",
 )
+# 2026-09-15 把 /openspec/ 從這一份拿掉：規格是寫給接手的人與驗收的人讀的，
+# 不是內部檔。實測時它整份放行，一個字都沒被檢查過。
 SKILL_LOG = Path.home() / "Documents" / "skill_logs" / "usage.jsonl"
 NEEDED = {"zh-tw-doc-copy", "humanizer-tw"}
 WINDOW_SEC = 45 * 60
@@ -84,10 +86,31 @@ def main() -> int:
         payload = json.load(sys.stdin)
     except Exception:
         return 0
-    if payload.get("tool_name") not in {"Edit", "Write", "MultiEdit", "NotebookEdit"}:
+    tool = payload.get("tool_name")
+    ti = payload.get("tool_input") or {}
+
+    # 留言、開單、提交訊息也是使用者會讀到的中文，一樣要先跑過文案 skill。
+    # 2026-09-15 實測：以前這一支只看改檔案，所以 gh issue comment 整條沒人管。
+    if tool == "Bash":
+        cmd = ti.get("command") or ""
+        if not CJK.search(cmd):
+            return 0
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import coined_word_guard as g
+            if not g.OUTWARD.search(cmd) or g.SELFTEST.search(cmd):
+                return 0
+        except Exception:
+            return 0
+        if NEEDED <= skills_run(payload.get("session_id", "")):
+            return 0
+        print("這一次要送出去給別人讀的中文，這一輪還沒跑過文案 skill。\n"
+              "先跑 zh-tw-doc-copy 再跑 humanizer-tw，然後再送一次。", file=sys.stderr)
+        return 2
+
+    if tool not in {"Edit", "Write", "MultiEdit", "NotebookEdit"}:
         return 0
 
-    ti = payload.get("tool_input") or {}
     path = ti.get("file_path") or ti.get("notebook_path") or ""
     if not path or any(x in path for x in EXEMPT):
         return 0

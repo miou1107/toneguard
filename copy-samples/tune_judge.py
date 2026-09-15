@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-tune_judge.py — 判官自己練，用考題當老師。
+tune_judge.py — 語意判官自己練，用考題當老師。
 
-判官第一次考試只有 10% 的抓到率。憑感覺改它的規則等於再賭一次，
+語意判官第一次考試只有 10% 的抓到率。憑感覺改它的規則等於再賭一次，
 所以改成一個迴圈：拿考題跑一輪，把判錯的那幾題連同正確答案交給 agy，
 請它改規則，再跑一輪，分數有進步才留下來。
 
@@ -28,7 +28,7 @@ JUDGE = pathlib.Path.home() / ".claude" / "hooks" / "copy_judge.py"
 
 
 def blocked(text):
-    """判官說有問題就回 True。它降級的時候走 stdout，沒降級走退出碼。"""
+    """語意判官說有問題就回 True。它降級的時候走 stdout，沒降級走退出碼。"""
     r = subprocess.run([sys.executable, str(JUDGE), "--text", text, "--force"],
                        capture_output=True, text=True, timeout=300)
     return r.returncode == 2 or "退回" in r.stdout or "有意見" in r.stdout
@@ -132,7 +132,7 @@ def main():
     rc, fpr, sc, _, _ = run(test)
     print(f"\n考試題（從頭到尾沒看過）：抓到 {rc:.0f}%、誤判 {fpr:.0f}%")
     ok = rc >= 70 and fpr <= 15
-    print("判官" + ("考過了，可以擋人。" if ok else "還是考不過，維持只提醒。"))
+    print("語意判官" + ("考過了，可以擋人。" if ok else "還是考不過，維持只提醒。"))
     SCORE.write_text(json.dumps({"n": nte, "recall": rc, "fp": fpr, "pass": ok,
                                  "tuned": True}, ensure_ascii=False, indent=1),
                      encoding="utf-8")

@@ -24,7 +24,9 @@ STATE = pathlib.Path.home() / ".claude" / "state" / "scenario"
 # 路徑長這樣就是那一種。目錄裡的 trigger 是寫給人看的，這一份是給程式比對的。
 PATHS = [
     ("plan-proposal", r"(計畫書|計劃書|產創|補助|申請書|成果報告書|審查簡報|proposal)"),
-    ("data-report", r"(112_fonexplorer|fonexplorer/index\.html|126_copy_gate|13\d_.*\.py)"),
+    # 2026-09-15 補：只認得那幾支程式的時候，一份報告的導言會被當成規格文件
+    ("data-report", r"(112_fonexplorer|fonexplorer/index\.html|126_copy_gate|13\d_.*\.py"
+                    r"|/reports?/|報告|導言|洞察|narrative|/analysis/)"),
     ("decision-deck", r"(gslides|slides|\.pptx|deck)"),
     ("spec-doc", r"(docs?/spec|規格|openspec|/specs?/)"),
     ("progress-rollup", r"(彙整|更版|release-note|CHANGELOG|handoff|交接)"),
@@ -34,10 +36,21 @@ PATHS = [
 ]
 # 這些不是檔案，是動作
 TOOLS = [
+    # 更版彙整也是走 gh issue，所以要先看內文寫了什麼，再決定是哪一種。
+    # 2026-09-15 實測：一則更版彙整拿到的是「回覆別人的 issue」那一張卡片。
+    ("progress-rollup",
+     r"\bgh\s+(?:issue|release)\s+(?:create|comment)\b[\s\S]*"
+     r"(?:更版|彙整|盤點|修復項目|更新內容|本次範圍|release[- ]note)"),
     ("github-issue-new", r"\bgh\s+issue\s+create\b"),
     ("github-issue-reply", r"\bgh\s+(issue|pr)\s+comment\b|\bgh\s+api\b.*comments"),
     ("commit-pr", r"\bgit\s+commit\b|\bgh\s+pr\s+create\b"),
+    # 寫進線上試算表或線上文件的工作紀錄（Vin 2026-09-15 指定要補這一種）
+    ("worklog-online", r"gspread|sheets\.googleapis\.com|docs\.google\.com|"
+                       r"sheets\.google\.com|googleapis\.com/.*spreadsheet"),
 ]
+# 有中文、卻認不出是哪一種情境的，要留下來查，不能靜靜放過去。
+# 那份紀錄就是「還有哪幾種情境沒進目錄」的清單。
+UNMATCHED = pathlib.Path.home() / ".claude" / "state" / "copy-gate" / "unmatched.jsonl"
 
 
 def load():
@@ -99,6 +112,16 @@ def once(sid, path):
     return True
 
 
+def note_unmatched(tool, path, cmd):
+    try:
+        UNMATCHED.parent.mkdir(parents=True, exist_ok=True)
+        with UNMATCHED.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"tool": tool, "path": path, "cmd": cmd[:120]},
+                               ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def main():
     argv = sys.argv[1:]
     rows = load()
@@ -131,8 +154,13 @@ def main():
     if not zh:
         return
     sid = match(path, cmd)
-    if sid in by and once(sid, path):
+    # 回第二張、第三張 issue 的時候也要看得到卡片，所以 key 帶上單號
+    key = path or (re.search(r"\b(?:issue|pr)\s+(?:comment\s+)?#?(\d+)", cmd) or [""])
+    key = path if path else (key.group(1) if hasattr(key, "group") else "")
+    if sid in by and once(sid, key):
         print(card(by[sid]))
+    elif not sid:
+        note_unmatched(p.get("tool_name", ""), path, cmd)
 
 
 if __name__ == "__main__":

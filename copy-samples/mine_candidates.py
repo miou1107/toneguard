@@ -9,7 +9,7 @@ coined-terms.json 裡那 40 個詞，是他一個一個退出來的，所以清�
 做法：數我自己講過的中文（~/.claude/projects 的逐字稿），扣掉他寫過的
 （vin-corpus.txt）與工程名詞白名單，剩下「我常用、他從來沒用過」的就是候選。
 
-輸出寫回 coined-terms.json 的 candidates 區，語調守門員對候選只提醒不擋。
+輸出寫回 coined-terms.json 的 candidates 區，文筆守門員對候選只提醒不擋。
 他看過點頭，就把那一筆搬進 terms 改成 block。
 
 用法：
@@ -32,7 +32,7 @@ CORPUS = SAMPLES / "vin-corpus.txt"
 ZH_RUN = re.compile(r"[一-鿿]{2,}")
 MIN_MINE = 40          # 我用過幾次才算口頭禪
 NGRAM = (2, 3, 4, 5)
-# 這幾種不是我寫的句子：引用記憶的橫幅、語調守門員的回報、我原封不動轉述的工具輸出。
+# 這幾種不是我寫的句子：引用記憶的橫幅、文筆守門員的回報、我原封不動轉述的工具輸出。
 # 不擋掉的話，數出來最高的三個是 OwnMind 橫幅裡的字。
 NOT_MINE = re.compile(r"^\s*>|\[OwnMind|^\s*[⛔✅⚠️📌🔍]|hook feedback")
 
@@ -81,7 +81,7 @@ def mine(top):
             if c >= MIN_MINE and g not in corpus and not ALLOW.search(g)}
 
     # 「找到的記」是「找到的記憶」被切斷的半截，不是一個說法。
-    # 判準：一個說法如果幾乎每次都接同一個字（或都被同一個字接著），它就是半截。
+    # 規則：一個說法如果幾乎每次都接同一個字（或都被同一個字接著），它就是半截。
     # 先掃一遍建索引，不要每個候選都去翻整份計數表（那樣要跑幾十分鐘）。
     best_r, best_l = {}, {}
     for k, v in cnt.items():
@@ -116,7 +116,7 @@ def main():
         return
     d = json.loads(TERMS.read_text(encoding="utf-8"))
     d["_candidates"] = ("mine_candidates.py 數出來的候選：我常用、他一次都沒寫過。"
-                        "語調守門員只提醒不擋。他看過點頭就搬進 terms 改成 block。")
+                        "文筆守門員只提醒不擋。他看過點頭就搬進 terms 改成 block。")
     d["candidates"] = [{"bad": g, "mine_count": c} for g, c in rows]
     TERMS.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n",
                      encoding="utf-8")

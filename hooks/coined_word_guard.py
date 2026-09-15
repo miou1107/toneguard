@@ -14,7 +14,7 @@ coined_word_guard.py — 擋「我自己發明的詞」。
   語料 vin-corpus.txt        我在同一份稿裡重複用、而他一次都沒寫過的說法，列出來參考。
 
 語料由 copy-samples/build_vin_corpus.py 產生，它會把三種不是他打的東西擋在外面：
-他退我稿時順手打出來的爛句子、他把我的稿貼回來的整段、以及語調守門員自己的回報。
+他退我稿時順手打出來的爛句子、他把我的稿貼回來的整段、以及文筆守門員自己的回報。
 沒有那三道過濾，我的用字會變成「他寫過的詞」（2026-09-15 查出 20/40 個詞被誤放）。
 
 用法：
@@ -32,12 +32,49 @@ import sys
 # 會被別人讀到的指令：留言、開單、commit 訊息。其他 Bash 指令裡的中文
 # 多半是我在測試或 grep，掃了只會擋住自己做事。
 OUTWARD = re.compile(
-    r"\bgh\s+(?:issue|pr|release)\s+(?:comment|create|edit|close|reopen)\b|"
-    r"\bgit\s+(?:commit|tag)\b|\bgh\s+api\b.*(?:comments|issues|pulls)")
-# 從指令裡挖出要送出去的那段字
+    r"\bgh\s+(?:issue|pr|release|gist)\s+(?:comment|create|edit|close|reopen)\b|"
+    r"\bgit\s+(?:commit|tag)\b|\bgh\s+api\b|"
+    # 送進線上試算表、線上文件、聊天軟體、信件的那幾種。2026-09-15 補：
+    # 以前只認 gh 跟 git，所以「把工作日誌寫進 Google 試算表」整段沒被掃過。
+    # 拿最近 12 個對話的 4,205 條帶中文指令重放過：多掃 15 條，其餘不變。
+    r"gspread|googleapis\.com/|docs\.google\.com|sheets\.google\.com|"
+    r"slack\.com/api|api\.notion\.com|smtplib|sendmail|\bmsmtp\b|"
+    r"api\.telegram\.org|api\.twilio\.com|"
+    r"\bcurl\b[^\n|;]*(?:-d\s|--data)[^\n|;]*https?://")
+# 用指令把中文寫進檔案（cat > x.md、tee、printf > x.tsx）跟用 Edit 改檔案是同一件事，
+# 可是以前只有 Edit 那條路有人守。2026-09-15 重放最近 12 個對話：
+# 這種指令有 874 條，其中 570 條寫進暫存目錄（不掃），真的寫進專案檔案的有 304 條。
+WRITEFILE = re.compile(
+    r"(?:^|[|;&]\s*)(?:cat|tee|printf|echo)\b[^\n]*?>>?\s*(?P<f>[^\s|;&<>]+)"
+    r"|>\s*(?P<f2>[^\s|;&<>]*\.(?:md|tsx|jsx|ts|js|vue|svelte|html|py|json|txt))")
+# 暫存目錄裡的東西沒有人會讀到
+SCRATCH = re.compile(r"/tmp/|/private/tmp/|scratchpad|/var/folders/|\.bak$|/dev/null")
+# 這兩種把內文寫在 --body / -m 裡，可以精準挑出來
+GHGIT = re.compile(r"\bgh\s+(?:issue|pr|release|gist)\b|\bgit\s+(?:commit|tag)\b|"
+                   r"\bgh\s+api\b")
+# 跑這個 repo 自己的檢查程式不算對外，不然每次自我檢查都會被自己擋住
+SELFTEST = re.compile(r"coined_word_guard|copy_judge|copy_gate_on_edit|complaint_learn|"
+                      r"scenario\.py|copy-samples|copy-rules|toneguard|judge_exam|build_gold")
+# 這幾個工具是我在找東西、讀東西、管自己的工作，產出不會有人讀到
+SKIP_TOOLS = re.compile(
+    r"^(Read|Glob|Grep|ToolSearch|WebFetch|WebSearch|ListAgents|ListSkills|"
+    r"Skill|TaskOutput|TaskStop|Monitor|EnterPlanMode|ExitPlanMode|"
+    r"mcp__ccd_(?:view|session_mgmt|sidebar|window|directory|connectors)__|"
+    r"mcp__ownmind__ownmind_(?:search|get|init|list_secrets|get_secret))")
+# 只是指到東西的欄位，裡面的中文不是要送出去的文案
+REFONLY = {"file_path", "notebook_path", "path", "paths", "pattern", "glob", "url",
+           "cwd", "id", "ids", "thread_id", "asset_id", "collection", "doc_id",
+           "field", "old_string", "old_str", "old_source", "query", "file_paths"}
+# 指令裡要送出去的那段字寫在哪裡。短旗標一定要一起認：
+# 2026-09-15 實測，`gh issue comment 123 --body "…"` 攔得住，
+# 同一句改成 `-b` 就整段放行，而 -b 是平常會打的那一個。
 ARGTEXT = re.compile(
-    r'--(?:body|title|message|notes|name)(?:=|\s+)(?P<q>["\'])(?P<v>(?:\\.|(?!(?P=q)).)*)(?P=q)|'
-    r'(?:^|\s)-m\s+(?P<q2>["\'])(?P<v2>(?:\\.|(?!(?P=q2)).)*)(?P=q2)', re.S)
+    r'--(?:body|title|message|notes|name|subject)(?:=|\s+)(?P<q>["\'])(?P<v>(?:\\.|(?!(?P=q)).)*)(?P=q)|'
+    r'(?:^|\s)-(?:m|b|t)\s+(?P<q2>["\'])(?P<v2>(?:\\.|(?!(?P=q2)).)*)(?P=q2)', re.S)
+# 內文寫成檔案再送的那一種：-F、--body-file、--notes-file。值是路徑，要把檔案讀進來掃。
+FILEARG = re.compile(
+    r'--(?:body-file|notes-file)(?:=|\s+)(?P<f>[^\s"\']+)|'
+    r'(?:^|\s)-F\s+(?P<f2>[^\s"\']+)')
 
 HOME = pathlib.Path.home()
 SAMPLES = HOME / ".claude" / "copy-samples"
@@ -47,12 +84,17 @@ CORPUS = SAMPLES / "vin-corpus.txt"
 BLOCKLOG = HOME / ".claude" / "state" / "copy-gate" / "blocks.jsonl"
 
 ZH_RUN = re.compile(r"[一-鿿]{2,}")
+# 一次最多掃這麼多字。2026-09-15 量到的速度是每一千字 0.32 秒，
+# 14 萬字的內文檔會讓這一支跑超過一分鐘 —— 而它掛在每一個工具之前，
+# 慢下來等於整個對話卡住。一萬二千字約 3.8 秒，比任何一份要送出去的稿都長。
+# 超過的部分會出聲說沒掃到，不會靜靜跳過。
+MAX_SCAN = 12000
 # 這些檔案裡的中文不是給人讀的，不掃
 SKIP_PATH = re.compile(
     r"(CLAUDE\.md|AGENTS\.md|/\.claude/(hooks|skills|plugins|projects|state|"
     r"commands|agents|settings)|copy-samples|coined-terms|copy-patterns|"
     r"vin-corpus|vin-raw-messages|rejected\.jsonl|情境目錄|"
-    r"CHANGELOG|FILELIST|DECISION_LOG|METHODOLOGY|DATA_INVENTORY|"
+    r"FILELIST|DECISION_LOG|METHODOLOGY|DATA_INVENTORY|"
     r"/tests?/|_test\.|\.test\.)")
 
 # 引用不算違規：講「某某詞要換成某某」的時候，那個詞本來就得寫出來。
@@ -134,7 +176,7 @@ def scan(text, corpus=None):
             warns.append((f"{g}（我用過 {cd.get('mine_count', 0)} 次，他一次都沒用過）",
                           "換成他用過的說法，或確認這個詞他真的懂", "候選詞", "尚未確認"))
 
-    # 我在同一份稿裡重複用、而他一次都沒寫過的說法。留出法量過：
+    # 我在同一份稿裡重複用、而他一次都沒寫過的說法。留出法統計過：
     # 他親手寫的句子有 54% 的三字詞不在語料裡，我被退過的句子是 74%，
     # 方向是對的但分不乾淨，所以只當提醒，不擋。
     unseen = []
@@ -245,13 +287,44 @@ def from_hook():
                 "（這一則回話）", bool(payload.get("stop_hook_active")))
     tool = payload.get("tool_name") or ""
     ti = payload.get("tool_input") or {}
+    if SKIP_TOOLS.match(tool):
+        return None, "", False
 
     if tool == "Bash":
         cmd = ti.get("command") or ""
-        if not OUTWARD.search(cmd):
+        if not OUTWARD.search(cmd) or SELFTEST.search(cmd):
+            # 不是要送出去的指令，還要看它是不是在把中文寫進檔案
+            m = WRITEFILE.search(cmd)
+            tgt = (m.group("f") or m.group("f2") or "").strip('"\'') if m else ""
+            if (tgt and not SCRATCH.search(tgt) and not SKIP_PATH.search(tgt)
+                    and ZH_RUN.search(cmd)):
+                return cmd, tgt, False
             return None, "", False
         sent = [(m.group("v") or m.group("v2") or "") for m in ARGTEXT.finditer(cmd)]
-        return ("\n".join(sent) or None), "（這段字會送出去給別人讀）", False
+        # gh 與 git 把內文寫在旗標裡，挑得出來；送進試算表、文件、聊天軟體、
+        # 信件的那幾種是直接寫在指令中間，只能整條掃。
+        if not GHGIT.search(cmd):
+            return cmd, "（這段字會送出去給別人讀）", False
+        unread = []
+        for m in FILEARG.finditer(cmd):
+            fp = m.group("f") or m.group("f2") or ""
+            try:
+                sent.append(pathlib.Path(fp).expanduser().read_text(encoding="utf-8"))
+            except Exception:
+                unread.append(fp)
+        if unread:
+            print("［文案掃描］這道指令要把 " + "、".join(unread) +
+                  " 的內容送出去給別人讀，可是我讀不到那個檔案，所以它沒有被掃過。")
+        text = "\n".join(x for x in sent if x)
+        if not text:
+            # 比對到這是對外的指令，卻讀不到要送出去的字。
+            # 以前這裡跟「這道指令裡沒有中文」走同一條路：直接放行，而且不出聲。
+            # 2026-09-15 查出短旗標就是這樣整段漏掉的。
+            print("［文案掃描］這是一道會送出去給別人讀的指令，"
+                  "可是我讀不到要送出去的那段字，所以它沒有被掃過。"
+                  "內文請改成 --body \"…\" 或 --body-file，再送一次。")
+            return None, "", False
+        return text, "（這段字會送出去給別人讀）", False
 
     if tool == "Agent":
         return (ti.get("prompt") or None), "（要交給別人做的指示）", False
@@ -273,7 +346,29 @@ def from_hook():
     for e in (ti.get("edits") or []):
         if isinstance(e, dict) and isinstance(e.get("new_string"), str):
             chunks.append(e["new_string"])
-    return ("\n".join(chunks) or None), path, False
+    if chunks:
+        return "\n".join(chunks), path, False
+
+    # 名單以外的工具（包含以後接的任何 MCP 工具）：預設就掃。
+    # 以前這裡直接回 None，所以只要換一個工具送中文，一個字都不會被看過。
+    # 只掃會把內容帶出去的欄位，指到東西的欄位不掃。
+    out = []
+    walk(ti, out)
+    return ("\n".join(out) or None), f"（{tool}）", False
+
+
+def walk(node, out, key=""):
+    """把要送出去的字挑出來。只看值，不看那些只是指路的欄位。"""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in REFONLY:
+                continue
+            walk(v, out, k)
+    elif isinstance(node, list):
+        for v in node:
+            walk(v, out, key)
+    elif isinstance(node, str) and ZH_RUN.search(node):
+        out.append(node)
 
 
 def main():
@@ -289,6 +384,10 @@ def main():
 
     if not text or not ZH_RUN.search(text):
         sys.exit(0)
+    if len(text) > MAX_SCAN:
+        print(f"［文案掃描］這一份有 {len(text)} 個字，只掃前 {MAX_SCAN} 個。"
+              "後面那一段沒有被掃過。")
+        text = text[:MAX_SCAN]
 
     msg, blocked = report(text, path, terse=terse)
     if isinstance(msg, tuple):
