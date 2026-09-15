@@ -1,0 +1,4 @@
+{"round": 0, "train_recall": 100.0, "train_fp": 83.33333333333334, "score": 16.666666666666657, "rubric_len": 834}
+{"round": 1, "train_recall": 100.0, "train_fp": 83.33333333333334, "score": 16.666666666666657, "rubric_len": 1050}
+{"round": 2, "train_recall": 100.0, "train_fp": 83.33333333333334, "score": 16.666666666666657, "rubric_len": 1250}
+{"round": 3, "train_recall": 100.0, "train_fp": 83.33333333333334, "score": 16.666666666666657, "rubric_len": 1361}

@@ -1,0 +1,16 @@
+# 語料與原始紀錄不進版控：裡面是 Vin 自己的文件與私人訊息
+copy-samples/sources/
+copy-samples/vin-corpus.txt
+copy-samples/vin-corpus-formal.txt
+copy-samples/vin-raw-messages.jsonl
+copy-samples/gold.jsonl
+copy-samples/eval-set.jsonl
+copy-samples/eval-baseline.json
+copy-samples/rejected.jsonl
+copy-samples/complaints.jsonl
+copy-samples/complaint-last*.md
+
+# 執行過程產生的東西
+__pycache__/
+*.pyc
+.DS_Store
