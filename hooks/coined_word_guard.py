@@ -29,10 +29,13 @@ import pathlib
 import re
 import sys
 
-# 會被別人讀到的指令：留言、開單、commit 訊息。其他 Bash 指令裡的中文
+# 會被別人讀到的指令：留言、開單、commit 訊息，還有 label 的名稱與說明。
+# label 那一種是 2026-09-21 漏掉的：一張看板標籤的說明會一直掛在單子上給人讀，
+# 跟 issue 內文一樣，可是原本的清單只認 issue／pr／release／gist，整行沒被掃過。
+# 其他 Bash 指令裡的中文
 # 多半是我在測試或 grep，掃了只會擋住自己做事。
 OUTWARD = re.compile(
-    r"\bgh\s+(?:issue|pr|release|gist)\s+(?:comment|create|edit|close|reopen)\b|"
+    r"\bgh\s+(?:issue|pr|release|gist|label)\s+(?:comment|create|edit|close|reopen)\b|"
     r"\bgit\s+(?:commit|tag)\b|\bgh\s+api\b|"
     # 送進線上試算表、線上文件、聊天軟體、信件的那幾種。2026-09-15 補：
     # 以前只認 gh 跟 git，所以「把工作日誌寫進 Google 試算表」整段沒被掃過。
@@ -50,7 +53,7 @@ WRITEFILE = re.compile(
 # 暫存目錄裡的東西沒有人會讀到
 SCRATCH = re.compile(r"/tmp/|/private/tmp/|scratchpad|/var/folders/|\.bak$|/dev/null")
 # 這兩種把內文寫在 --body / -m 裡，可以精準挑出來
-GHGIT = re.compile(r"\bgh\s+(?:issue|pr|release|gist)\b|\bgit\s+(?:commit|tag)\b|"
+GHGIT = re.compile(r"\bgh\s+(?:issue|pr|release|gist|label)\b|\bgit\s+(?:commit|tag)\b|"
                    r"\bgh\s+api\b")
 # 跑這個 repo 自己的檢查程式不算對外，不然每次自我檢查都會被自己擋住
 SELFTEST = re.compile(r"coined_word_guard|copy_judge|copy_gate_on_edit|complaint_learn|"
@@ -69,8 +72,8 @@ REFONLY = {"file_path", "notebook_path", "path", "paths", "pattern", "glob", "ur
 # 2026-09-15 實測，`gh issue comment 123 --body "…"` 攔得住，
 # 同一句改成 `-b` 就整段放行，而 -b 是平常會打的那一個。
 ARGTEXT = re.compile(
-    r'--(?:body|title|message|notes|name|subject)(?:=|\s+)(?P<q>["\'])(?P<v>(?:\\.|(?!(?P=q)).)*)(?P=q)|'
-    r'(?:^|\s)-(?:m|b|t)\s+(?P<q2>["\'])(?P<v2>(?:\\.|(?!(?P=q2)).)*)(?P=q2)', re.S)
+    r'--(?:body|title|message|notes|name|subject|description)(?:=|\s+)(?P<q>["\'])(?P<v>(?:\\.|(?!(?P=q)).)*)(?P=q)|'
+    r'(?:^|\s)-(?:m|b|t|d)\s+(?P<q2>["\'])(?P<v2>(?:\\.|(?!(?P=q2)).)*)(?P=q2)', re.S)
 # 內文寫成檔案再送的那一種：-F、--body-file、--notes-file。值是路徑，要把檔案讀進來掃。
 FILEARG = re.compile(
     r'--(?:body-file|notes-file)(?:=|\s+)(?P<f>[^\s"\']+)|'

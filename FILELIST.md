@@ -47,6 +47,7 @@
 | 檔案 | 做什麼 |
 |---|---|
 | `test_agent_audience.py` | `audience: agent` 那條路的 16 條回歸測試，每一條都真的跑一次掛勾看退出碼 |
+| `test_outward_commands.py` | 哪幾種指令算會被別人讀到的回歸測試 |
 
 ## docs/specs/　規格
 
