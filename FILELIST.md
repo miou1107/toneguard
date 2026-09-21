@@ -25,6 +25,7 @@
 |---|---|
 | `coined-terms.json` | 他親口退過的詞，加上還沒確認的候選 |
 | `copy-patterns.json` | 那些詞歸納出來的六種寫法，用來擋還沒被他退過的第 41 個詞 |
+| `agent-doc-rules.json` | 寫給 agent 讀的文件那一套：條件不明確、同一個東西前後兩個名字、數字沒標明是參考值還是目標 |
 | `judge-rubric.txt` | 語意判官的評分規範，externalized 出來才能改版重考 |
 | `judge-score.json` | 最近一次考試的成績。`pass` 這個欄位決定語意判官准不准擋人 |
 
@@ -40,6 +41,12 @@
 | `judge_exam.py` | 考語意判官，順便決定門檻訂幾分 |
 | `tune_judge.py` | 自動改評分規範再重考 |
 | `measure.py` / `eval.py` / `build_eval_set.py` | 量涵蓋率與抱怨比例 |
+
+## tests/　回歸測試
+
+| 檔案 | 做什麼 |
+|---|---|
+| `test_agent_audience.py` | `audience: agent` 那條路的 16 條回歸測試，每一條都真的跑一次掛勾看退出碼 |
 
 ## docs/specs/　規格
 

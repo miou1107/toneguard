@@ -80,6 +80,7 @@ HOME = pathlib.Path.home()
 SAMPLES = HOME / ".claude" / "copy-samples"
 TERMS = SAMPLES / "coined-terms.json"
 PATTERNS = SAMPLES / "copy-patterns.json"
+AGENT_RULES = SAMPLES / "agent-doc-rules.json"
 CORPUS = SAMPLES / "vin-corpus.txt"
 BLOCKLOG = HOME / ".claude" / "state" / "copy-gate" / "blocks.jsonl"
 
@@ -96,6 +97,22 @@ SKIP_PATH = re.compile(
     r"vin-corpus|vin-raw-messages|rejected\.jsonl|情境目錄|"
     r"FILELIST|DECISION_LOG|METHODOLOGY|DATA_INVENTORY|"
     r"/tests?/|_test\.|\.test\.)")
+
+# 檔案開頭宣告讀者是誰。人讀的那一套規則管「他會不會讀不懂」，
+# agent 讀到自創詞不會卡，卡的是條件寫得不明確，所以兩種讀者要用兩套規則。
+AUDIENCE_RE = re.compile(r"^[^\S\n]*(?:#[^\S\n]*|-[^\S\n]*)?audience:"
+                         r"[^\S\n]*([A-Za-z-]+)[^\S\n]*$", re.M | re.I)
+# 這一行只在檔案最前面算數：前 400 個字、前 5 行、而且要在第一個程式碼區塊之前。
+# 一份在教這個欄位怎麼寫的文件，範例多半寫在程式碼區塊裡，那個不算宣告。
+AUDIENCE_HEAD = 400
+AUDIENCE_LINES = 5
+# 實測數字沒有標明是參考值還是要追的目標，agent 會拿它當目標。
+# 位數設上限，免得遇到一長串數字（雜湊、base64）在回溯上耗掉好幾秒。
+# 不認「次」跟「筆」：重試 3 次那種不是要追的目標，掃進去每一份都在跳。
+AGENT_NUMBER = re.compile(r"(?<!\d)\d{1,6}(?:\.\d{1,4})?[^\S\n]*(?:分鐘|秒|%|倍|個月)")
+# 程式碼區塊與行內的指令、檔名都是要照抄的東西，不是敘述。
+# 內文寫「分支」而指令裡有 branch，那不是前後不一致。
+CODE_FENCE = re.compile(r"```.*?```|`[^`\n]+`", re.S)
 
 # 引用不算違規：講「某某詞要換成某某」的時候，那個詞本來就得寫出來。
 QUOTE_LINE = re.compile(r"(→|->|退過|改成|換成|不准|別再說|不要用|要說)")
@@ -121,6 +138,111 @@ def strip_quotes(text):
     for line in text.splitlines():
         out.append(QUOTED.sub("　", line) if QUOTE_LINE.search(line) else line)
     return "\n".join(out)
+
+
+def _declared(head):
+    """只認檔案最前面那一行宣告：第一個程式碼區塊之前、前幾行之內。"""
+    head = head.split("```")[0]
+    head = "\n".join(head.splitlines()[:AUDIENCE_LINES])
+    m = AUDIENCE_RE.search(head)
+    return m.group(1).lower() if m else ""
+
+
+def _file_head(path):
+    """讀檔案開頭那幾百個字。整份讀進來只為了拿 400 個字，遇到幾百 MB 的檔
+    會吃掉等量的記憶體，遇到具名管道會直接停在那裡不回來 —— 而這一支掛在
+    每一個工具之前，停住等於整個對話卡住。所以先確認是一般檔案，再限量讀。"""
+    if not path or path.startswith("（"):
+        return ""
+    try:
+        p = pathlib.Path(path).expanduser()
+        if not p.is_file():
+            return ""
+        with p.open(encoding="utf-8", errors="replace") as f:
+            return f.read(AUDIENCE_HEAD)
+    except Exception:
+        return ""
+
+
+def audience_of(text, path=""):
+    """這一份是寫給誰讀的。檔案開頭寫 audience: agent 就走 agent 那一套規則。
+    沒寫的一律當成人要讀 —— 漏掉一次的代價是他在畫面上讀到一句爛文案，
+    比多掃一輪大。
+
+    **以檔案上的宣告為準，不是以這次要寫進去的那段字為準。** 不然只要在要送
+    出去的文字最前面加一行 audience: agent，這段字就自己把自己放行了，而這一
+    支存在的前提正是「自己讀自己剛寫的字，讀得懂就不覺得怪」。只有檔案還不存
+    在（新開一個檔）的時候，才拿這次的內容當宣告。回話與指令沒有檔案可讀，
+    一律走人讀的那一套。"""
+    if not path or path.startswith("（"):
+        return ""
+    head = _file_head(path)
+    if head:
+        return _declared(head)
+    return _declared(text[:AUDIENCE_HEAD])
+
+
+def _has(term, prose):
+    """英數的詞要當成完整的字比對。app 落在 apply、application 裡面，
+    照子字串比會每一份規格都跳一次假的。中文沒有詞界，照子字串比。"""
+    if term.isascii():
+        return bool(re.search(rf"(?<![A-Za-z]){re.escape(term)}(?![A-Za-z])",
+                              prose, re.I))
+    return term in prose
+
+
+def scan_agent(text):
+    """給 agent 讀的文件會壞在三個地方，回 (blocks, warns)。
+    讀不到規則檔回 None，讓呼叫的人知道這一份沒有被掃過 —— 回空清單會讓
+    畫面上印出一個綠燈，而那時候人讀的那一套也已經跳過了，等於整份沒人看。"""
+    try:
+        d = json.loads(AGENT_RULES.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    text = strip_quotes(text)
+    # 程式碼區塊裡的字是要照抄的東西，不是敘述。`branches:` 跟內文的「分支」
+    # 同時出現不算前後不一致，掃進去只會每一份都跳三個假的。
+    prose = CODE_FENCE.sub(" ", text)
+    blocks, warns = [], []
+    for v in d.get("vague", []):
+        # 也照 prose 比：引用別人的規格、或是列出禁用詞的那一行，
+        # 裡面本來就得寫出那幾個字，擋下來的話這件事沒辦法寫。
+        if v.get("bad") and v["bad"] in prose:
+            blocks.append((v["bad"], v.get("good", ""), v.get("why", "")))
+    for pair in d.get("aliases", []):
+        if len(pair) == 2 and _has(pair[0], prose) and _has(pair[1], prose):
+            warns.append((f"{pair[0]} ／ {pair[1]}", "全文統一用其中一個",
+                          "同一個東西兩個名字，agent 會當成兩件事"))
+    markers = d.get("number_marker", [])
+    if AGENT_NUMBER.search(text) and not any(k in text for k in markers):
+        warns.append(("文件裡有實測數字，可是沒有標明它是什麼",
+                      "寫一句它是參考值還是要達到的目標",
+                      "沒標的話 agent 會把別人的實測值當成自己要追的目標"))
+    return blocks, warns
+
+
+def report_agent(blocks, warns, path="", terse=False):
+    """audience: agent 的那一份，只用 agent 那一套規則擋人。"""
+    out = []
+    if blocks:
+        out.append(f"⛔ 有 {len(blocks)} 處條件寫得不明確，agent 會自己放寬：")
+        for bad, good, why in blocks:
+            tail = f"　（{why}）" if why else ""
+            out.append(f"   {bad} → {good}{tail}")
+    if terse:
+        # 已經退回過一次，只講擋下來的那幾個
+        return ("［文案掃描］\n" + "\n".join(out)) if out else "", bool(blocks)
+    if warns:
+        out.append(f"⚠️ 有 {len(warns)} 處要確認：")
+        for bad, good, why in warns:
+            tail = f"　（{why}）" if why else ""
+            out.append(f"   {bad} → {good}{tail}")
+    if not out:
+        out.append("✅ 條件都寫得出判斷依據，名稱前後一致。")
+    head = f"［文案掃描］{path}" if path else "［文案掃描］"
+    head += "（這一份標了 audience: agent，用給 agent 讀的那一套規則，"
+    head += "人讀的用詞規則不擋）"
+    return head + "\n" + "\n".join(out), bool(blocks)
 
 
 def scan(text, corpus=None):
@@ -191,12 +313,14 @@ def scan(text, corpus=None):
     return blocks, warns, prefers, unseen
 
 
-def log_block(path, blocks):
-    """記下每一次被擋，才畫得出「第一稿就對了沒有」那條線。"""
+def log_block(path, blocks, kind="human"):
+    """記下每一次被擋，才畫得出「第一稿就對了沒有」那條線。
+    兩套規則要分得開，不然那條線是兩種東西混出來的。"""
     try:
         BLOCKLOG.parent.mkdir(parents=True, exist_ok=True)
         with BLOCKLOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"path": path, "hits": [b[0] for b in blocks]},
+            f.write(json.dumps({"path": path, "kind": kind,
+                                "hits": [b[0] for b in blocks]},
                                ensure_ascii=False) + "\n")
     except Exception:
         pass
@@ -388,6 +512,24 @@ def main():
         print(f"［文案掃描］這一份有 {len(text)} 個字，只掃前 {MAX_SCAN} 個。"
               "後面那一段沒有被掃過。")
         text = text[:MAX_SCAN]
+
+    if audience_of(text, path) == "agent":
+        found = scan_agent(text)
+        if found is None:
+            # 讀不到規則檔就回去走人讀的那一套。放行等於這一份沒有人看過，
+            # 而且畫面上還會印一個綠燈。
+            print("［文案掃描］讀不到 agent-doc-rules.json，"
+                  "這一份改用人讀的那一套規則掃。")
+        else:
+            blocks, warns = found
+            msg, blocked = report_agent(blocks, warns, path, terse=terse)
+            if blocked:
+                log_block(path, blocks, kind="agent")
+                print(msg, file=sys.stderr)
+                sys.exit(2)
+            if msg:
+                print(msg)
+            sys.exit(0)
 
     msg, blocked = report(text, path, terse=terse)
     if isinstance(msg, tuple):
