@@ -528,8 +528,9 @@ def main():
             msg, blocked = report_agent(blocks, warns, path, terse=terse)
             if blocked:
                 log_block(path, blocks, kind="agent")
-                print(msg, file=sys.stderr)
-                sys.exit(2)
+                if not terse:
+                    print(msg, file=sys.stderr)
+                    sys.exit(2)
             if msg:
                 print(msg)
             sys.exit(0)
@@ -539,8 +540,13 @@ def main():
         msg = msg[0]
     if blocked:
         log_block(path, scan(text)[0])
-        print(msg, file=sys.stderr)
-        sys.exit(2)
+        # 回話這條路已經退回過一次（terse ＝ 這一輪的 Stop 是上一次退回帶出來的）。
+        # 再退一次只會連環跳：要提到那個被退的詞，就又被自己擋下。第二次以後
+        # 只在畫面上提醒、不再擋，這一輪才收得了尾。改檔案、開單、commit 那幾條
+        # 一律 terse=False，不受影響。
+        if not terse:
+            print(msg, file=sys.stderr)
+            sys.exit(2)
     if msg:
         print(msg)
     sys.exit(0)
