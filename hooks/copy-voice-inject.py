@@ -19,11 +19,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 BASE = Path.home() / ".claude" / "copy-samples"
-# 樣本跟著 zh-tw-doc-copy 這個 skill 走，因為 skill 會同步到每一台機器、
+# 樣本跟著 vin-toneguard-draft 這個 skill 走，因為 skill 會同步到每一台機器、
 # 每一個專案都讀得到同一份。舊位置留著當備援，搬檔的那一天不要整個掛掉。
-SAMPLES = (
-    Path.home() / ".claude" / "skills" / "zh-tw-doc-copy" / "references" / "vin-voice.md"
-)
+# 2026-10-03 前這個 skill 叫 zh-tw-doc-copy；還沒同步到新名字的機器走第二個路徑。
+SKILLS = Path.home() / ".claude" / "skills"
+SAMPLES = SKILLS / "vin-toneguard-draft" / "references" / "vin-voice.md"
+if not SAMPLES.exists():
+    SAMPLES = SKILLS / "zh-tw-doc-copy" / "references" / "vin-voice.md"
 if not SAMPLES.exists():
     SAMPLES = BASE / "copy-samples.md"
 MARKER = "<!-- INJECT-END"

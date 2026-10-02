@@ -23,9 +23,9 @@ OUT = HERE / "eval-set.jsonl"
 DOCS = [
     HOME / ".claude" / "CLAUDE.md",
     HOME / "taipei票券專案-ph" / "CLAUDE.md",
-    HOME / ".claude" / "skills" / "zh-tw-doc-copy" / "SKILL.md",
-    HOME / ".claude" / "skills" / "zh-tw-doc-copy" / "references" / "vin-voice.md",
-    HOME / ".claude" / "skills" / "humanizer-tw" / "SKILL.md",
+    HOME / ".claude" / "skills" / "vin-toneguard-draft" / "SKILL.md",
+    HOME / ".claude" / "skills" / "vin-toneguard-draft" / "references" / "vin-voice.md",
+    HOME / ".claude" / "skills" / "vin-toneguard-polish" / "SKILL.md",
     HOME / "taipei票券專案-ph" / ".claude" / "skills" / "票券專案-report-copy" / "SKILL.md",
 ]
 

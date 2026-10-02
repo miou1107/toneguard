@@ -32,7 +32,10 @@ EXEMPT = (
 # 2026-09-15 把 /openspec/ 從這一份拿掉：規格是寫給接手的人與驗收的人讀的，
 # 不是內部檔。實測時它整份放行，一個字都沒被檢查過。
 SKILL_LOG = Path.home() / "Documents" / "skill_logs" / "usage.jsonl"
-NEEDED = {"zh-tw-doc-copy", "humanizer-tw"}
+NEEDED = {"vin-toneguard-draft", "vin-toneguard-polish"}
+# 2026-10-03 the two skills were renamed. A session that started before the rename still
+# has the old names loaded, so a run under the old name counts as the new one.
+OLD_NAMES = {"zh-tw-doc-copy": "vin-toneguard-draft", "humanizer-tw": "vin-toneguard-polish"}
 WINDOW_SEC = 45 * 60
 
 
@@ -67,7 +70,8 @@ def skills_run(session: str) -> set:
                 d = json.loads(line)
             except Exception:
                 continue
-            if d.get("session") != session or d.get("skill") not in NEEDED:
+            skill = OLD_NAMES.get(d.get("skill"), d.get("skill"))
+            if d.get("session") != session or skill not in NEEDED:
                 continue
             ts = d.get("ts", "")
             try:
@@ -75,7 +79,7 @@ def skills_run(session: str) -> set:
             except Exception:
                 continue
             if now - t <= WINDOW_SEC:
-                seen.add(d["skill"])
+                seen.add(skill)
     except OSError:
         pass
     return seen
@@ -105,7 +109,7 @@ def main() -> int:
         if NEEDED <= skills_run(payload.get("session_id", "")):
             return 0
         print("這一次要送出去給別人讀的中文，這一輪還沒跑過文案 skill。\n"
-              "先跑 zh-tw-doc-copy 再跑 humanizer-tw，然後再送一次。", file=sys.stderr)
+              "先跑 vin-toneguard-draft 再跑 vin-toneguard-polish，然後再送一次。", file=sys.stderr)
         return 2
 
     if tool not in {"Edit", "Write", "MultiEdit", "NotebookEdit"}:
@@ -128,9 +132,9 @@ def main() -> int:
     print(
         f"這次要寫進 {os.path.basename(path)} 的中文，使用者會在畫面上看到。\n"
         f"這一輪還沒跑：{'、'.join(sorted(missing))}。\n"
-        "先跑 zh-tw-doc-copy（動筆前）再跑 humanizer-tw（寫完），然後再改一次。\n"
+        "先跑 vin-toneguard-draft（動筆前）再跑 vin-toneguard-polish（寫完），然後再改一次。\n"
         "讀者是誰、他心裡的問題是什麼，動筆前要先答得出來。"
-        "樣本在 zh-tw-doc-copy 那個 skill 的 references/vin-voice.md："
+        "樣本在 vin-toneguard-draft 那個 skill 的 references/vin-voice.md："
         "上半段是句子怎麼寫，下半段是那個讀者自己的詞。",
         file=sys.stderr,
     )

@@ -1,7 +1,7 @@
 # 這個資料夾：查表用的資料，跟三支產生它的程式
 
-樣本句子跟著 `zh-tw-doc-copy` 這個 skill 走
-（`~/.claude/skills/zh-tw-doc-copy/references/vin-voice.md`），
+樣本句子跟著 `vin-toneguard-draft` 這個 skill 走
+（`~/.claude/skills/vin-toneguard-draft/references/vin-voice.md`），
 因為 skill 會同步到每一台機器，每個專案讀到的是同一份。
 這裡放的是**文筆守門員要查的表**，以及把表算出來的程式。
 
