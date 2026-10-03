@@ -28,6 +28,7 @@ import json
 import pathlib
 import re
 import sys
+import time
 
 # 會被別人讀到的指令：留言、開單、commit 訊息，還有 label 的名稱與說明。
 # label 那一種是 2026-09-21 漏掉的：一張看板標籤的說明會一直掛在單子上給人讀，
@@ -330,11 +331,16 @@ def scan(text, corpus=None):
 
 def log_block(path, blocks, kind="human"):
     """記下每一次被擋，才畫得出「第一稿就對了沒有」那條線。
-    兩套規則要分得開，不然那條線是兩種東西混出來的。"""
+    兩套規則要分得開，不然那條線是兩種東西混出來的。
+
+    每一筆都要寫時間。2026-10-03 要回答「這套東西上線之後他有沒有少抱怨」的時候，
+    這份紀錄已經累積 682 筆，可是一筆都沒有時間，所以只能看檔案的修改時間，
+    算不出任何一段期間的次數。沒有時間的紀錄等於只能證明它有在動，證明不了它有沒有用。"""
     try:
         BLOCKLOG.parent.mkdir(parents=True, exist_ok=True)
         with BLOCKLOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"path": path, "kind": kind,
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                "path": path, "kind": kind,
                                 "hits": [b[0] for b in blocks]},
                                ensure_ascii=False) + "\n")
     except Exception:

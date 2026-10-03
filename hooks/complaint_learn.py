@@ -137,7 +137,7 @@ def note_praise(payload, msg):
         APPROVED.parent.mkdir(parents=True, exist_ok=True)
         with APPROVED.open("a", encoding="utf-8") as f:
             f.write(json.dumps({
-                "ts": time.strftime("%Y-%m-%d"), "scenario": "reply-vin",
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "scenario": "reply-vin",
                 "kind": "寫得好", "question": question[:600], "text": reply[:3000],
                 "label": "good", "confidence": "high", "praise": msg[:120],
                 "source": "他當場說的"}, ensure_ascii=False) + "\n")
@@ -196,7 +196,9 @@ def main():
     try:
         OUT.parent.mkdir(parents=True, exist_ok=True)
         with OUT.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"question": question[:600], "reply": reply[:3000],
+            # 時間要寫進去。這份紀錄是結果指標，沒有時間就畫不出他抱怨的頻率有沒有降。
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                "question": question[:600], "reply": reply[:3000],
                                 "complaint": msg[:200], "kind": kind,
                                 "how": how}, ensure_ascii=False) + "\n")
     except Exception:

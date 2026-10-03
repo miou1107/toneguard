@@ -25,6 +25,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 
 HOME = pathlib.Path.home()
 SAMPLES = HOME / ".claude" / "copy-samples"
@@ -219,10 +220,13 @@ def may_block(is_reply):
 
 
 def log(kind, path, n):
+    """每一筆都要寫時間。沒有時間就答不出「它從哪一天開始判不了」、
+    「這一週每百則攔了幾則」，而那兩題正是判斷它有沒有在工作的題目。"""
     try:
         STATE.mkdir(parents=True, exist_ok=True)
         with (STATE / "judged.jsonl").open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"kind": kind, "path": path, "issues": n},
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                "kind": kind, "path": path, "issues": n},
                                ensure_ascii=False) + "\n")
     except Exception:
         pass
