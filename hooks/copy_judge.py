@@ -38,6 +38,10 @@ TIMEOUT = 150
 # 釘住模型，不要用 agy 自己的預設。預設可能是比較重的那一級，一次考試幾百題就很貴。
 # 2026-10-03 跑一輪基準線把額度用光，Vin 說「之後應該你改用輕量一點模型就可以少花一點」。
 MODEL = "gemini-3.8-flash-low"
+# agy 的額度用完的時候，換成問 Claude。用的是 Vin 自己訂的那份額度，
+# 跟他跟我講話用的是同一份，所以平常不開，只有考試的時候由 judge_exam.py 開。
+# 開法：環境變數 COPY_JUDGE_BACKEND=claude
+CLAUDE_MODEL = "claude-sonnet-5-5"
 
 SKIP_PATH = re.compile(
     r"(CLAUDE\.md|AGENTS\.md|/\.claude/(hooks|skills|plugins|projects|state|"
@@ -159,6 +163,33 @@ def reader_questions(path):
     return ""
 
 
+def backend():
+    """判官去問誰。預設 agy，額度用完的時候用環境變數換成 claude。"""
+    return "claude" if os.environ.get("COPY_JUDGE_BACKEND") == "claude" else "agy"
+
+
+def model_name():
+    """實際問到的那個模型的名字。考試要把它寫進成績單與快取的鍵，
+    不然換了判官之後，兩種判官的分數會混在同一張成績單上。"""
+    return CLAUDE_MODEL if backend() == "claude" else MODEL
+
+
+def ask_model(prompt):
+    """送一次問題出去。
+
+    走 claude 的時候一定要帶 --restricted：它會略過使用者與專案的設定檔，
+    所以被叫起來的那個 claude 不會再跑一次這支掛勾，問一題變成問無限題。
+    COPY_JUDGE_INNER 是第二道，萬一設定檔的來源以後改了，它照樣會當場結束。"""
+    if backend() == "claude":
+        env = dict(os.environ, COPY_JUDGE_INNER="1")
+        return subprocess.run(
+            ["claude", "-p", prompt, "--model", CLAUDE_MODEL,
+             "--restricted", "--strict-mcp-config"],
+            capture_output=True, text=True, timeout=240, env=env)
+    return subprocess.run(["agy", "--model", MODEL, "-p", prompt],
+                          capture_output=True, text=True, timeout=TIMEOUT)
+
+
 def judge(text, question=""):  # noqa: C901
     """回 (分數, issues, 判不了的原因)。分數是「讀的人要回頭重讀幾次才懂」。
 
@@ -171,12 +202,11 @@ def judge(text, question=""):  # noqa: C901
     prompt = (rubric().replace("{GOOD}", g).replace("{BAD}", b)
               + "\n\n" + q + "=== 要檢查的稿 ===\n" + text[:12000])
     try:
-        r = subprocess.run(["agy", "--model", MODEL, "-p", prompt],
-                           capture_output=True, text=True, timeout=TIMEOUT)
+        r = ask_model(prompt)
     except FileNotFoundError:
-        return 0, [], "找不到 agy"
+        return 0, [], f"找不到 {backend()}"
     except subprocess.TimeoutExpired:
-        return 0, [], f"超過 {TIMEOUT} 秒沒回"
+        return 0, [], "等太久沒回"
     m = re.search(r"\{.*\}", r.stdout, re.S)
     if not m:
         return 0, [], "回的東西不是 JSON"
@@ -390,7 +420,7 @@ def main():
     floor = int(argv[argv.index("--min") + 1]) if "--min" in argv else MIN_ZH
     if not text or len(ZH.findall(text)) < floor:
         sys.exit(0)
-    if os.environ.get("COPY_JUDGE_OFF"):
+    if os.environ.get("COPY_JUDGE_OFF") or os.environ.get("COPY_JUDGE_INNER"):
         sys.exit(0)
     if "--force" not in argv and seen(text):
         sys.exit(0)

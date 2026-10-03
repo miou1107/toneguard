@@ -99,7 +99,7 @@ def stamp_of(rubric):
         spec = importlib.util.spec_from_file_location("copy_judge_for_exam", JUDGE)
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        model = m.MODEL
+        model = m.model_name() if hasattr(m, "model_name") else m.MODEL
         good, bad = m.examples()
         exsig = hashlib.sha1((good + "\x00" + bad).encode("utf-8")).hexdigest()[:12]
     except Exception as e:
