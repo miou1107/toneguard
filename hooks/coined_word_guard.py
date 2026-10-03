@@ -86,6 +86,8 @@ PATTERNS = SAMPLES / "copy-patterns.json"
 AGENT_RULES = SAMPLES / "agent-doc-rules.json"
 CORPUS = SAMPLES / "vin-corpus.txt"
 BLOCKLOG = HOME / ".claude" / "state" / "copy-gate" / "blocks.jsonl"
+PENDING_REPLY_NOTICE = HOME / ".claude" / "state" / "copy-gate" / "pending-reply-notice.txt"
+REPLY_LABEL = "（這一則回話）"
 
 ZH_RUN = re.compile(r"[一-鿿]{2,}")
 # 一次最多掃這麼多字。2026-09-15 量到的速度是每一千字 0.32 秒，
@@ -411,7 +413,7 @@ def from_hook():
         # 回話也是文案，這個出口本來沒有門。已經退回過一次就只報擋下來的，
         # 不然要引用一個退過的詞的時候會被連擋到上限。
         return (last_reply(payload.get("transcript_path", "")),
-                "（這一則回話）", bool(payload.get("stop_hook_active")))
+                REPLY_LABEL, bool(payload.get("stop_hook_active")))
     tool = payload.get("tool_name") or ""
     ti = payload.get("tool_input") or {}
     if SKIP_TOOLS.match(tool):
@@ -538,6 +540,17 @@ def main():
     msg, blocked = report(text, path, terse=terse)
     if isinstance(msg, tuple):
         msg = msg[0]
+    if blocked and path == REPLY_LABEL:
+        # 回話不再退回。退回會讓 AI 把整則回話再貼一次，Vin 畫面上就有兩份
+        # 幾乎一樣的回話（2026-10-02 他說「把你重複講話的這個功能關掉」）。
+        # 改成記下來，下一輪 copy-voice-inject.py 會把它交給 AI。
+        log_block(path, scan(text)[0])
+        try:
+            PENDING_REPLY_NOTICE.parent.mkdir(parents=True, exist_ok=True)
+            PENDING_REPLY_NOTICE.write_text(msg, encoding="utf-8")
+        except OSError:
+            pass
+        sys.exit(0)
     if blocked:
         log_block(path, scan(text)[0])
         # 回話這條路已經退回過一次（terse ＝ 這一輪的 Stop 是上一次退回帶出來的）。

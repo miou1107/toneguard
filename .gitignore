@@ -15,3 +15,5 @@ __pycache__/
 *.pyc
 .DS_Store
 approved.jsonl
+copy-samples/judge-exam-cache.json
+copy-samples/pairs.jsonl

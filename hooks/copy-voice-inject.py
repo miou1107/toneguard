@@ -85,6 +85,20 @@ def main() -> int:
         f"先開 {SAMPLES} 的下半段讀他自己的詞。"
     )
 
+    # 上一則回話被文案掃描抓到的寫法。以前是當場退回、AI 重貼整則，
+    # Vin 會看到兩份；現在改成這裡交給 AI，從這一則開始照著改。
+    pending = Path.home() / ".claude" / "state" / "copy-gate" / "pending-reply-notice.txt"
+    notice = ""
+    try:
+        notice = pending.read_text(encoding="utf-8").strip()
+        pending.unlink()
+    except OSError:
+        pass
+    if notice:
+        body = ("<previous-reply-copy-scan>\n上一則回話有 Vin 退過的寫法。"
+                "不用重貼上一則，也不用跟他道歉，這一則開始照著改：\n"
+                + notice + "\n</previous-reply-copy-scan>\n\n" + body)
+
     json.dump(
         {
             "hookSpecificOutput": {
