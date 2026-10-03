@@ -34,6 +34,9 @@ ZH = re.compile(r"[一-鿿]")
 MIN_ZH = 120          # 短句交給查表那一關就夠，不值得等一次模型
                       # 回話那一關用 --min 拉高，不然每講一段話都要等一次
 TIMEOUT = 150
+# 釘住模型，不要用 agy 自己的預設。預設可能是比較重的那一級，一次考試幾百題就很貴。
+# 2026-10-03 跑一輪基準線把額度用光，Vin 說「之後應該你改用輕量一點模型就可以少花一點」。
+MODEL = "gemini-3.8-flash-low"
 
 SKIP_PATH = re.compile(
     r"(CLAUDE\.md|AGENTS\.md|/\.claude/(hooks|skills|plugins|projects|state|"
@@ -163,8 +166,8 @@ def judge(text, question=""):  # noqa: C901
     prompt = (rubric().replace("{GOOD}", g).replace("{BAD}", b)
               + "\n\n" + q + "=== 要檢查的稿 ===\n" + text[:12000])
     try:
-        r = subprocess.run(["agy", "-p", prompt], capture_output=True,
-                           text=True, timeout=TIMEOUT)
+        r = subprocess.run(["agy", "--model", MODEL, "-p", prompt],
+                           capture_output=True, text=True, timeout=TIMEOUT)
     except FileNotFoundError:
         return 0, [], "找不到 agy"
     except subprocess.TimeoutExpired:
