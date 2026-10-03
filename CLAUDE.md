@@ -23,6 +23,11 @@
 提交的作者設成 `miou1107@users.noreply.github.com`，不要用公司信箱，
 因為公開頁面上每一個提交都看得到作者信箱。
 
+**已經確認過的例外：`copy-rules/情境目錄.json` 裡他 2026-08-25 那句原話照原樣保留**，
+那句話裡有一個票券產品的名字。他 2026-10-03 看過之後說「這沒差」，
+所以不要再提案換成代稱，也不要為它重寫歷史。
+
+
 ### 2. 語料不在版控裡，而且不准放進去
 
 `copy-samples/sources/`、`vin-corpus*.txt`、`vin-raw-messages.jsonl`、`gold.jsonl`、
