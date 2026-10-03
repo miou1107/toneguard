@@ -12,6 +12,8 @@ export type CopyGateView = {
   polishAt: number
   /** 這一輪被擋下幾次 */
   blocked: number
+  /** 這一輪有幾次中文沒被擋、真的寫出去了 */
+  passed: number
   /** 收起來了（Vin 按的，或是回完話過一陣子自動收） */
   isHidden: boolean
 }
