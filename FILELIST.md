@@ -10,6 +10,14 @@
 | `copy-voice-inject.py` | 每一輪把他自己寫過的句子送進 context | UserPromptSubmit |
 | `complaint_learn.py` | 他說聽不懂就分析上一輪問答分四種原因，連同是哪一個對話說的一起存進 `complaints.jsonl`，重寫那一關要拿它來比；他說寫得好就把前一則存進 `approved.jsonl` | UserPromptSubmit |
 
+## mods/　ToneGuard：輸入框上面那一行
+
+| 檔案 | 做什麼 | 掛在哪 |
+|---|---|---|
+| `copy-gate/hooks/register.tsx` | 這一輪有中文要給人讀的時候，用一行寫出兩個文案 skill 跑了沒，後面接這一輪碰到哪幾份中文。兩個都跑過是綠色，有一個沒跑是黃色。檔名最多列兩個，再多只寫數量；排不下就截斷，不換行 | `~/.claude/mods/copy-gate`，要在 settings.json 的 `CLAUDE_CODE_PLUGIN_DIRS` 列到 |
+| `copy-gate/hooks/band.test.tsx` | 那一行的測試，10 條 | 跑 `claude plugin test mods/copy-gate` |
+| `copy-gate/.claude-plugin/plugin.json` | 外掛的名字與版本 | 同上 |
+
 ## copy-rules/　規則與情境
 
 | 檔案 | 放什麼 |

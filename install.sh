@@ -6,7 +6,11 @@ C="$HOME/.claude"
 
 link() {  # link <來源> <目的地>
   if [ -L "$2" ]; then rm "$2"
-  elif [ -e "$2" ]; then echo "跳過 $2：那裡已經有一個不是連結的檔案"; return; fi
+  elif [ -e "$2" ]; then
+    echo "⚠️ 跳過 $2：那裡已經有一個不是連結的東西。"
+    echo "   先把它移開再跑一次，不然 Claude Code 載到的還是舊的那一份。"
+    return
+  fi
   ln -s "$1" "$2"; echo "已連上 $2"
 }
 
@@ -17,9 +21,12 @@ done
 link "$R/copy-rules"   "$C/copy-rules"
 link "$R/copy-samples" "$C/copy-samples"
 
+mkdir -p "$C/mods"
+link "$R/mods/copy-gate" "$C/mods/copy-gate"
+
 cat <<'TXT'
 
-接下來要自己做一件事：把下面這五個掛勾加進 ~/.claude/settings.json 的 hooks。
+接下來要自己做兩件事。第一件：把下面這幾個掛勾加進 ~/.claude/settings.json 的 hooks。
 
   PreToolUse  Edit|Write|MultiEdit|NotebookEdit  python3 ~/.claude/hooks/copy_gate_on_edit.py
   PreToolUse  Edit|Write|MultiEdit|NotebookEdit|Bash|Agent|Artifact
@@ -31,6 +38,11 @@ cat <<'TXT'
   Stop                                          python3 ~/.claude/hooks/copy_judge.py --min 260
   UserPromptSubmit                              python3 ~/.claude/hooks/copy-voice-inject.py
   UserPromptSubmit                              python3 ~/.claude/hooks/complaint_learn.py
+
+第二件：把下面這一行加進 settings.json 的 env，輸入框上面那一行才會出現。
+已經有這個設定的話，用冒號接在原本的值後面，不要蓋掉：
+
+  "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/copy-gate"
 
 語料不在版控裡，要重建就跑：
   python3 copy-samples/build_vin_corpus.py

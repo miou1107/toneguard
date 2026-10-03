@@ -47,6 +47,26 @@ bash install.sh
 | 第一層 掃詞 | `hooks/coined_word_guard.py` | 白紙黑字的用詞：自創量詞、口語動詞、比喻、把機器狀態講成人的動作 | 抓得到 Vin 實際退稿句子的 25%，詞表 47 個一律擋、9 個只提醒 |
 | 第二層 讀意思 | `hooks/copy_judge.py` | 他問的那件事有沒有被回答 | 還在調，目前只提醒不擋 |
 
+### ToneGuard：輸入框上面那一行，看得出這一輪有沒有檢查過
+
+掃詞跟讀意思這兩層，只有真的擋人的時候才出聲，沒擋就一片安靜。畫面一片安靜的時候，
+Vin 分不出這一輪是真的沒問題，還是根本沒被檢查到。
+所以輸入框上面多了一行，判斷寫在最前面，後面才寫這一輪碰到哪幾份中文：
+
+```
+ToneGuard  都檢查過了・16 個檔、PR 內文（01:12、01:15）
+ToneGuard  polish 沒跑・5 個檔、issue 留言・擋下 2 條          ✕
+ToneGuard  還沒檢查・draft-zh.md、index.html                  ✕
+```
+
+兩個 skill 都跑過是綠色，有一個沒跑是黃色。檔名最多列兩個，再多就只寫數量 ——
+一次碰十幾個檔的時候全部列出來，會排滿五行，而判斷就被擠到最後面。
+視窗窄到排不下的時候那一行會被截斷，不會換行。
+
+程式在 `mods/copy-gate/`，安裝之後連到 `~/.claude/mods/copy-gate`，
+而且要在 `~/.claude/settings.json` 的 `env` 裡把那個路徑列進 `CLAUDE_CODE_PLUGIN_DIRS`，
+那一行才會出現。它只負責顯示，真正擋人的是 `hooks/copy_gate_on_edit.py`。
+
 ### 掃詞掛在哪裡：預設全掃，例外才放行
 
 原本是名單制，程式先問「這個工具在不在我的名單上」，在名單上才掃。
@@ -227,5 +247,6 @@ COPY_JUDGE_BACKEND=claude python3 copy-samples/judge_exam.py --compare --workers
 | `hooks/` | 五支掛勾，安裝之後連到 `~/.claude/hooks` |
 | `copy-rules/` | 情境目錄（13 種情境各自要掌握什麼）、情境路由、制度文件 |
 | `copy-samples/` | 詞表、寫法規則、語意判官的評分規範，以及重建語料與考語意判官的程式 |
+| `mods/` | ToneGuard：輸入框上面那一行，安裝之後連到 `~/.claude/mods/copy-gate` |
 
 `copy-rules/文案品管制度.md` 是整套制度的說明，裡面有四張流程圖。

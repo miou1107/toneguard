@@ -1,0 +1,1 @@
+{"name": "copy-gate", "version": "0.1.0", "description": "ToneGuard：這一輪有中文要給人讀的時候，在輸入框上面用一行寫出兩個文案 skill 跑了沒", "author": {"name": "Vin"}, "types": "./types/index.d.ts"}
