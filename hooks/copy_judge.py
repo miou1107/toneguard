@@ -184,10 +184,16 @@ def judge(text, question=""):  # noqa: C901
         d = json.loads(m.group(0))
     except Exception:
         return 0, [], "JSON 解不開"
+    # 0 分的意思是「讀的人一次就懂」，而它同時是「模型沒給分數」的預設值。
+    # 兩種混在一起的時候，模型沒回答會長得跟寫得很好一模一樣：這一關直接放行，
+    # 考試也把它算成一個真的 0 分。2026-10-03 那張成績單裡 253 題有 39 題是 0 分，
+    # 事後分不出哪幾題是模型沒給分數。沒給就說沒判成，不要自己補一個 0。
+    if "score" not in d:
+        return 0, [], "回的 JSON 沒有 score"
     try:
-        sc = int(d.get("score", 0))
+        sc = int(d["score"])
     except Exception:
-        sc = 0
+        return 0, [], f"score 不是數字（{str(d['score'])[:20]}）"
     issues = d.get("issues") or []
     # 他問一句短的、我回一大段，而且判出有毛病，就算第一句答對了他還是讀不下去。
     # 長度單獨看分不開（他抱怨過的 55%、沒抱怨的 46% 都超過 200 字），

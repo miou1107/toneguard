@@ -152,6 +152,30 @@ def test_baseline_uses_the_rows_it_is_given():
     check("他親口說好的那一群是空的也不會除以零", fp, 0.0)
 
 
+def test_missing_score_is_not_zero():
+    """模型沒給分數的時候要說沒判成，不可以自己補一個 0 分放行。
+
+    0 分的意思是「讀的人一次就懂」。模型什麼都沒給的時候也拿到 0 分，
+    那它跟一段寫得很好的稿就長得一模一樣：這一關放行，考試還把它算成一個真的 0 分。
+    所以這一條先送一份沒有分數的回答，確認它真的攔得住，再送一份真的 0 分，
+    確認那一種照樣過得去 —— 只測前者的話，把所有回答都擋掉也會「通過」。
+    """
+    m = load(ROOT / "hooks" / "copy_judge.py", "copy_judge_test")
+
+    def ask(reply):
+        class R:
+            stdout = reply
+        m.subprocess.run = lambda *a, **k: R()
+        return m.judge("這一段中文的長度不影響結果，判的是模型回了什麼。", "他問的那一句")
+
+    sc, issues, err = ask('{"issues": [], "reason": "沒問題"}')
+    check("沒給分數就說沒判成", bool(err), True)
+    sc, issues, err = ask('{"score": "八分", "issues": []}')
+    check("分數不是數字也說沒判成", bool(err), True)
+    sc, issues, err = ask('{"score": 0, "issues": []}')
+    check("真的 0 分照樣過得去", (sc, err), (0, ""))
+
+
 def main():
     test_headings()
     test_every_block_term_really_blocks()
@@ -161,6 +185,7 @@ def main():
     test_key_follows_model_and_examples()
     test_stats()
     test_baseline_uses_the_rows_it_is_given()
+    test_missing_score_is_not_zero()
     print()
     if fails:
         print(f"{len(fails)} 條沒過：" + "、".join(fails))
