@@ -65,6 +65,20 @@ def test_headings():
     check("建議換上去的寫法不會被擋", edit_rc(f"# 文件\n\n{first}\n\n這一段是內容。"), 0)
 
 
+def test_every_block_term_really_blocks():
+    """詞表裡每一個標成 block 的詞，都要真的擋得住。
+
+    一個詞寫進詞表，不等於它會被擋下來。中間還有正則、白名單、長度門檻，
+    所以「它在清單上」跟「送一句含它的話會 exit 2」是兩件事。
+    2026-10-03 他掃過候選清單、說那十個全部都擋，這一條就是在證明那十個真的擋得住，
+    而且以後每多一個詞都會被重新證明一次。逐個送，不抽樣。"""
+    terms = [t["bad"] for t in TERMS["terms"] if t.get("level") == "block"]
+    # 47 是 2026-10-03 他點頭之後的數量。往下掉表示有人刪掉詞，那要說得出理由。
+    check("詞表裡 block 的詞沒有變少", len(terms) >= 47, True)
+    miss = [w for w in terms if edit_rc(f"# 文件\n\n這一句裡面有{w}，應該被擋下來。") != 2]
+    check("每一個 block 的詞都擋得住", miss, [])
+
+
 def test_praise():
     m = load(ROOT / "hooks" / "complaint_learn.py", "complaint_learn_test")
     for s in ("這樣就清楚了", "這樣比較清楚", "文案 ok", "寫得很清楚", "好多了"):
@@ -140,6 +154,7 @@ def test_baseline_uses_the_rows_it_is_given():
 
 def main():
     test_headings()
+    test_every_block_term_really_blocks()
     test_praise()
     test_exam_sends_min_zero()
     test_scores_carry_their_own_text()

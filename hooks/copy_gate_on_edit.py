@@ -61,6 +61,23 @@ def user_visible_cjk(path: str, text: str) -> bool:
     return False
 
 
+WRITE_OP = re.compile(r"(?:^|[^<])>>?\s*|\btee\b|\bsed\s+-i")
+PATH_TOKEN = re.compile(r"[^\s\"'`|;&<>()]+\.(?:md|html|htm|tsx|jsx|ts|js|mjs|py|vue|svelte)\b")
+
+
+def shell_written_files(cmd: str) -> list:
+    """一條 shell 指令把使用者看得到的中文寫進了哪些檔案（檔名）。"""
+    if not WRITE_OP.search(cmd):
+        return []
+    out = []
+    for path in dict.fromkeys(PATH_TOKEN.findall(cmd)):
+        if any(x in path for x in EXEMPT) or ".test." in path or ".spec." in path:
+            continue
+        if user_visible_cjk(path, cmd):
+            out.append(os.path.basename(path))
+    return out
+
+
 def skills_run(session: str) -> set:
     seen = set()
     now = time.time()
@@ -102,14 +119,25 @@ def main() -> int:
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import coined_word_guard as g
-            if not g.OUTWARD.search(cmd) or g.SELFTEST.search(cmd):
+            if g.SELFTEST.search(cmd):
                 return 0
+            is_outward = bool(g.OUTWARD.search(cmd))
         except Exception:
+            return 0
+        # 2026-10-03 補：printf/echo 加 >、tee、sed -i 把中文寫進 md 或程式檔，
+        # 跟用 Write 工具寫是同一件事，以前這條路整段沒人管（copy-gate mod 實測抓到）。
+        written = shell_written_files(cmd)
+        if not is_outward and not written:
             return 0
         if NEEDED <= skills_run(payload.get("session_id", "")):
             return 0
-        print("這一次要送出去給別人讀的中文，這一輪還沒跑過文案 skill。\n"
-              "先跑 vin-toneguard-draft 再跑 vin-toneguard-polish，然後再送一次。", file=sys.stderr)
+        if is_outward:
+            print("這一次要送出去給別人讀的中文，這一輪還沒跑過文案 skill。\n"
+                  "先跑 vin-toneguard-draft 再跑 vin-toneguard-polish，然後再送一次。", file=sys.stderr)
+        else:
+            print(f"這條指令要把中文寫進 {'、'.join(written)}，使用者會在畫面上看到。\n"
+                  "這一輪還沒跑過文案 skill：先跑 vin-toneguard-draft 再跑 vin-toneguard-polish，然後再寫一次。",
+                  file=sys.stderr)
         return 2
 
     if tool not in {"Edit", "Write", "MultiEdit", "NotebookEdit"}:

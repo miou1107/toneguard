@@ -28,6 +28,11 @@ SAMPLES = HOME / ".claude" / "copy-samples"
 PROJECTS = HOME / ".claude" / "projects"
 TERMS = SAMPLES / "coined-terms.json"
 CORPUS = SAMPLES / "vin-corpus.txt"
+# 他打給我的全部中文。2026-10-03 查出來的：只拿 vin-corpus.txt 比對的時候，
+# 挖出來的 60 個候選裡有 34 個他其實寫過（智慧平台 23 次、會員卡 16 次、館方 12 次、
+# 退回 10 次）。那一份是重建的語料，涵蓋的時間與來源都比這一份窄，
+# 所以「他從來沒寫過」這個判斷本身是錯的，而整張候選清單就是靠那個判斷篩出來的。
+RAW = SAMPLES / "vin-raw-messages.jsonl"
 
 ZH_RUN = re.compile(r"[一-鿿]{2,}")
 MIN_MINE = 40          # 我用過幾次才算口頭禪
@@ -68,8 +73,20 @@ def my_text():
                 yield "\n".join(l for l in t.splitlines() if not NOT_MINE.search(l))
 
 
+def his_text():
+    """他寫過的字，兩個來源都要比。少比一份，候選清單就有一半是假的。"""
+    out = [CORPUS.read_text(encoding="utf-8", errors="replace") if CORPUS.exists() else ""]
+    if RAW.exists():
+        for line in RAW.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                out.append(json.loads(line).get("text", ""))
+            except Exception:
+                continue
+    return "\n".join(out)
+
+
 def mine(top):
-    corpus = CORPUS.read_text(encoding="utf-8") if CORPUS.exists() else ""
+    corpus = his_text()
     cnt = collections.Counter()
     for txt in my_text():
         for run in ZH_RUN.findall(txt):

@@ -36,7 +36,7 @@
 | `build_vin_corpus.py` | 重建語料，擋掉三種污染 |
 | `extract_docs.py` | 從他自己的 Word 與 PowerPoint 抽出正式語體的段落 |
 | `retrieve.py` | 從語料裡找同主題的句子，退稿的時候一起附上 |
-| `mine_candidates.py` | 從 AI 自己的輸出裡挖「我常用、他從來沒用過」的詞 |
+| `mine_candidates.py` | 從 AI 自己的輸出裡挖「我常用、他從來沒用過」的詞。兩份語料都要比，只比一份的話候選有一半是假的 |
 | `build_gold.py` | 把他抱怨過的那幾則整理成考題，分成抱怨過、沒說話、親口說好三群 |
 | `build_pairs.py` | 挖配對考題：他說聽不懂、我當場重寫、他說好，連在一起的三則 |
 | `judge_exam.py` | 考語意判官，順便決定門檻訂幾分。`--pairs` 跑配對考題 |
