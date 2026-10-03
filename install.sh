@@ -36,6 +36,7 @@ cat <<'TXT'
                                                 python3 ~/.claude/copy-rules/scenario.py
   Stop                                          python3 ~/.claude/hooks/coined_word_guard.py
   Stop                                          python3 ~/.claude/hooks/copy_judge.py --min 260
+  Stop                                          python3 ~/.claude/hooks/copy-voice-inject.py --log-reply
   UserPromptSubmit                              python3 ~/.claude/hooks/copy-voice-inject.py
   UserPromptSubmit                              python3 ~/.claude/hooks/complaint_learn.py
 

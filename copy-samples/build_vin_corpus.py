@@ -14,6 +14,11 @@ build_vin_corpus.py — 把 Vin 親手打的中文整理成兩份檔案。
     vin-raw-messages.jsonl      他歷來打給我的中文
     sources/*.txt               他自己寫的文件（88 頁菲律賓研究等）
 
+第四種污染（2026-10-04 issue #4）：他把我寫的字照原樣貼回來，沒有引號、沒有箭頭、
+沒有反引號，上面三道一道都攔不到。這一種在存進 vin-raw-messages.jsonl 的當下就標好了：
+copy-voice-inject.py 逐行跟我這兩天講過的話比，是我寫的那幾行寫在 echo_lines 欄位，
+這裡只負責跳過。他的原文一個字都不動。
+
 用法：
     python3 build_vin_corpus.py            # 重建
     python3 build_vin_corpus.py --check    # 只檢查，不寫檔（給 CI 用）
@@ -71,7 +76,11 @@ def build():
             text, ts = d.get("text") or "", d.get("ts", "")
             if MACHINE.search(text):
                 continue
-            for line in text.splitlines():
+            # 存進來的時候就標好的：這幾行是我寫的被他貼回來
+            echo = set(d.get("echo_lines") or [])
+            for i, line in enumerate(text.splitlines()):
+                if i in echo:
+                    continue
                 line = line.rstrip()
                 if not line.strip() or CODEISH.search(line):
                     continue

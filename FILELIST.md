@@ -7,7 +7,7 @@
 | `coined_word_guard.py` | 掃詞：自創量詞、口語動詞、比喻、把機器狀態講成人的動作 | PreToolUse（每一個工具，比對規則是 `.*`）與 Stop |
 | `copy_judge.py` | 讀「他問的那一句」加上回覆，給 0 到 10 分。他說看不懂之後，下一次回話改走另一條路：把他退掉的那一份跟重寫的這一份一起送進去問哪一份比較難讀，重寫的那一份還比較難讀就擋。畫面上的短句先收起來，一輪結束再一起判 | PreToolUse（改檔案、Bash）與 Stop |
 | `copy_gate_on_edit.py` | 這次動到引號裡的中文、或要送留言出去，就要求先跑文案 skill | PreToolUse（改檔案、Bash） |
-| `copy-voice-inject.py` | 每一輪把他自己寫過的句子送進 context | UserPromptSubmit |
+| `copy-voice-inject.py` | 每一輪把他自己寫過的句子送進 context，並存下他這一句；AI 寫的字被他貼回來的那幾行標成 `echo_lines` | UserPromptSubmit，另外以 `--log-reply` 掛在 Stop，記下 AI 這一輪寫出去的中文 |
 | `complaint_learn.py` | 他說聽不懂就分析上一輪問答分四種原因，連同是哪一個對話說的一起存進 `complaints.jsonl`，重寫那一關要拿它來比；他說寫得好就把前一則存進 `approved.jsonl` | UserPromptSubmit |
 
 ## mods/　ToneGuard：輸入框上面那一行
@@ -15,7 +15,7 @@
 | 檔案 | 做什麼 | 掛在哪 |
 |---|---|---|
 | `copy-gate/hooks/register.tsx` | 這一輪有中文要給人讀的時候，用一行寫出兩個文案 skill 跑了沒，後面接這一輪碰到哪幾份中文。兩個都跑過是綠色，還沒檢查是黃色，有指令真的被擋下來是紅色。檔名最多列兩個名字，再多只寫數量；排不下就截斷，不換行 | `~/.claude/mods/copy-gate`，要在 settings.json 的 `CLAUDE_CODE_PLUGIN_DIRS` 列到 |
-| `copy-gate/hooks/band.test.tsx` | 那一行的測試，14 條 | 跑 `claude plugin test mods/copy-gate` |
+| `copy-gate/hooks/band.test.tsx` | 那一行的測試，15 條 | 跑 `claude plugin test mods/copy-gate` |
 | `copy-gate/.claude-plugin/plugin.json` | 外掛的名字與版本 | 同上 |
 
 ## copy-rules/　規則與情境
@@ -43,7 +43,7 @@
 
 | 檔案 | 做什麼 |
 |---|---|
-| `build_vin_corpus.py` | 重建語料，擋掉三種污染 |
+| `build_vin_corpus.py` | 重建語料，擋掉三種污染，另外跳過存進去時就標成貼回來的那幾行 |
 | `extract_docs.py` | 從他自己的 Word 與 PowerPoint 抽出正式語體的段落 |
 | `retrieve.py` | 從語料裡找同主題的句子，退稿的時候一起附上 |
 | `mine_candidates.py` | 從 AI 自己的輸出裡挖「我常用、他從來沒用過」的詞。兩份語料都要比，只比一份的話候選有一半是假的 |
@@ -72,6 +72,7 @@
 | `test_outward_commands.py` | 哪幾種指令算會被別人讀到的回歸測試 |
 | `test_scenario_routing.py` | 哪一種動作該拿到哪一張卡片、哪一種該安靜放過去，26 條 |
 | `test_learning_loop.py` | 口語小標攔不攔得住、誇獎與是非題分不分得開、考試的算式對不對，33 條，一次模型呼叫都不花 |
+| `test_paste_back.py` | AI 寫的字被他貼回來的那幾行標不標得到、他改寫過的留不留得住、重建時跳不跳過、紀錄壞了會不會炸，35 條，一次模型呼叫都不花 |
 
 ## docs/specs/　規格
 

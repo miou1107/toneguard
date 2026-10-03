@@ -79,9 +79,13 @@ def his_text():
     if RAW.exists():
         for line in RAW.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
-                out.append(json.loads(line).get("text", ""))
+                d = json.loads(line)
             except Exception:
                 continue
+            # 標成 echo_lines 的那幾行是我寫的被他貼回來，算成他寫過就找不到我的詞了
+            echo = set(d.get("echo_lines") or [])
+            out.append("\n".join(l for i, l in enumerate((d.get("text") or "").splitlines())
+                                 if i not in echo))
     return "\n".join(out)
 
 
