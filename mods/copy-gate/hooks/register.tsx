@@ -216,10 +216,18 @@ export const register: Register = on => {
     // 黃色是「我還沒檢查，你再等一下」；紅色是「有一句真的沒送出去，你可能要看一下」
     const tone = v.blocked > 0 ? 'red' : 'yellow'
 
+    // 黃色是寫給 Vin 看的：講清楚是 AI 的事，他不用動手。紅色才需要列出哪一個 skill 沒跑
+    // 有一個 skill 在時間窗裡完全沒跑過，就不能說「重新」。檔名太長的時候先砍檔名，「你不用做什麼」一定要留著
+    const tail = `裡的中文，${ds === 'none' || ps === 'none' ? '還沒檢查文案' : '還沒重新檢查文案'}，你不用做什麼`
+    const head = 'AI 這一輪改了 '
+    const line = tone === 'yellow'
+      ? `${head}${fit(subject, Math.max(4, room - cells(head) - cells(tail) - 1))} ${tail}`
+      : `${verdict}・${subject}${blocked}`
+
     return (
       <Box flexDirection="row" gap={1}>
         <Text color={tone} bold>ToneGuard</Text>
-        <Text color={tone}>{fit(`${verdict}・${subject}${blocked}`, room)}</Text>
+        <Text color={tone}>{fit(line, room)}</Text>
         <Box flexGrow={1} />
         <Button key="copy-gate-hide" label="✕" dimColor onPress={hide} />
       </Box>

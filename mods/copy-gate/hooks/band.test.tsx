@@ -43,8 +43,7 @@ test('Chinese written to a prose file without the skills: the band warns, then p
   await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/README.md', content: '# 說明\n旅客掃 QR 之後會看到今天的行程' })
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui: any = await band($, surface)
-    expect(await ui.find({ type: 'Text', text: /README\.md/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /還沒檢查/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^AI 這一輪改了 README\.md 裡的中文，還沒檢查文案，你不用做什麼$/ })).toBeDefined()
         await ui.unmount()
   }
   now.t = T0 + 60_000
@@ -124,7 +123,7 @@ test('a new turn clears the outputs; skills run in the previous turn show as las
   await ui.unmount()
   await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/b.md', content: '司機會看到' })
   ui = await band($, 'terminal')
-  expect(await ui.find({ type: 'Text', text: /draft 上一輪 14:00 跑的，polish 上一輪 14:00 跑的/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^AI 這一輪改了 b\.md 裡的中文，還沒重新檢查文案，你不用做什麼$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /b\.md/ })).toBeDefined()
   await ui.unmount()
 })
@@ -269,4 +268,20 @@ test('中文全部被擋下來就不跳提示，真的寫出去才跳', async ($
   await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/a.md', content: '旅客會看到今天的行程' })
   await ($ as any).turn.complete({ ...done, turnId: 't2' })
   expect(toasts.length).toBe(1)
+})
+
+test('yellow: one skill never ran means not checked yet; a long subject is cut before the reassurance is', async ($, on) => {
+  const now = { t: T0 }
+  setup(on, now)
+  ;(on as any)('tool.call', () => ({ result: {}, text: 'ok' }))
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Skill', skill: 'vin-toneguard-draft' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/a-very-long-file-name-for-the-band.md', content: '旅客會看到' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/another-very-long-file-name.md', content: '司機會看到' })
+  const ui: any = await narrowBand($, 80)
+  const line = await ui.find({ type: 'Text', text: /^AI 這一輪改了 / })
+  expect(line).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /還沒檢查文案，你不用做什麼$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /重新/ })).toBeUndefined()
+  await ui.unmount()
 })
