@@ -57,6 +57,12 @@ UI_QUESTION = ("讀的人是使用者，他正卡在畫面上。他心裡只有�
                "我現在要做什麼、接下來會發生什麼。")
 
 RUBRIC_FILE = SAMPLES / "judge-rubric.txt"   # tune_judge.py 會改這一份
+PAIR_RUBRIC = SAMPLES / "judge-rubric-pair.txt"   # 兩份一起比的那個問法
+COMPLAINTS = SAMPLES / "complaints.jsonl"
+PAIR_USED = STATE / "pair-gate-used.json"
+PAIR_MIN = 50         # 重寫出來的那版通常比原稿短，回話那關的門檻會整個跳過
+PAIR_FRESH = 900      # 他說看不懂之後十五分鐘內算同一件事，更早的是別的問題
+SESSION = [""]
 
 
 def rubric():
@@ -240,6 +246,125 @@ def judge(text, question=""):  # noqa: C901
     return sc, issues, ""
 
 
+def ask_harder(question, a, b, fallback=True):
+    """問一次「A 跟 B 哪一份比較難讀」，回 ('A' 或 'B', 一句原因)。問不到回 (None, '')。
+
+    agy 答不出來的時候換成問 Claude。Claude 用的是 Vin 自己訂的額度，
+    所以只有這一條路會自動換 —— 它只在他剛說看不懂、我剛重寫一版的時候跑。"""
+    try:
+        rub = PAIR_RUBRIC.read_text(encoding="utf-8")
+    except Exception:
+        return None, ""
+    prompt = (rub.replace("{QUESTION}", (question or "（沒有指定）")[:600])
+              .replace("{A}", a[:6000]).replace("{B}", b[:6000]))
+    plans = [backend()] + (["claude"] if fallback and backend() != "claude" else [])
+    for who in plans:
+        env_was = os.environ.get("COPY_JUDGE_BACKEND")
+        os.environ["COPY_JUDGE_BACKEND"] = who
+        try:
+            for i in range(2):
+                try:
+                    r = ask_model(prompt)
+                except Exception:
+                    time.sleep(2)
+                    continue
+                hit = re.search(r"\{.*\}", r.stdout, re.S)
+                if not hit:
+                    time.sleep(2)
+                    continue
+                try:
+                    d = json.loads(hit.group(0))
+                except Exception:
+                    time.sleep(2)
+                    continue
+                h = str(d.get("harder", "")).strip().strip('"').upper()
+                if h in ("A", "B"):
+                    return h, str(d.get("why", ""))[:120]
+        finally:
+            if env_was is None:
+                os.environ.pop("COPY_JUDGE_BACKEND", None)
+            else:
+                os.environ["COPY_JUDGE_BACKEND"] = env_was
+    return None, ""
+
+
+def fresh_complaint():
+    """他剛剛才退掉的那份稿。沒有就回 None。
+
+    為什麼拿這一份比：它是他親口說看不懂的，不是猜的。
+    打分數那個問法在考題上分不出好壞（九對只分對兩對），
+    兩份一起比分對八對，而「兩份」在這個時候剛好湊得出來 —— 他退掉的那份加我重寫的這份。"""
+    try:
+        lines = COMPLAINTS.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return None
+    for line in reversed(lines[-20:]):
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        if not d.get("reply") or not d.get("ts"):
+            continue
+        # 別的對話剛被退稿，不要拿他的稿來比
+        if d.get("session") and SESSION[0] and d["session"] != SESSION[0]:
+            continue
+        try:
+            t = time.mktime(time.strptime(d["ts"], "%Y-%m-%dT%H:%M:%S"))
+        except Exception:
+            continue
+        if time.time() - t > PAIR_FRESH:
+            return None
+        if used(d["ts"]):
+            return None
+        return d
+    return None
+
+
+def used(ts, mark=False):
+    """同一次抱怨只擋一次。不記的話，他換了話題之後，
+    接下來十五分鐘每一則回話都會被拿去跟那份舊稿比。"""
+    try:
+        if mark:
+            STATE.mkdir(parents=True, exist_ok=True)
+            PAIR_USED.write_text(json.dumps({"ts": ts, "session": SESSION[0]}),
+                                 encoding="utf-8")
+            return True
+        d = json.loads(PAIR_USED.read_text(encoding="utf-8"))
+        return d.get("ts") == ts
+    except Exception:
+        return False
+
+
+def gate_rewrite(pair, text):
+    """他說看不懂、我重寫了一版。把他退掉的那份跟我這份一起送出去問哪一份比較難讀。
+
+    兩種位置都說我這份比較難讀才擋。只問一次的話，一個永遠挑 A 的判官會無故擋人；
+    考題上九對就有一對是這樣。位置換過來還是同一個答案，才算它在讀內容。
+    它說他退掉的那份比較難讀 —— 也就是我改好了 —— 就只問一次，不多花一次。"""
+    old = pair["reply"]
+    q = pair.get("question", "")
+    used(pair["ts"], mark=True)
+    h1, why1 = ask_harder(q, old, text)        # 他退掉的當 A、我這份當 B
+    if h1 is None:
+        print("［讀者審查］沒判成，這一版沒有人讀過。")
+        return
+    if h1 == "A":
+        log("重寫比原稿好", "（這一則回話）", 0)
+        print("［讀者審查］跟他退掉的那一版比，這一版比較好讀。")
+        return
+    h2, why2 = ask_harder(q, text, old)        # 位置換過來：我這份當 A
+    if h2 != "A":
+        log("兩種位置答案不一樣", "（這一則回話）", 0)
+        print("［讀者審查］換個順序再問，答案就反了，所以這一次不算，照原樣送出去。")
+        return
+    log("重寫還是比較難讀", "（這一則回話）", 1)
+    print("［讀者審查］他剛說看不懂，這一版比他退掉的那一版還難讀，不要送出去。\n"
+          f"   壞在：{why1 or why2}\n"
+          "   重寫一版：第一句直接回答他問的那件事，答完就停。",
+          file=sys.stderr)
+    sys.exit(2)
+
+
 def may_block(is_reply):
     """考不過就不准擋人，只准提醒。語意判官自己也會判錯，而且錯得很像對的：
     第一次考試抓到率只有 10%、誤擋率 20%，比不裝還糟。
@@ -314,6 +439,7 @@ def from_hook():
         payload = json.load(sys.stdin)
     except Exception:
         return None, "", ""
+    SESSION[0] = payload.get("session_id") or ""
     if payload.get("hook_event_name") == "Stop":
         if payload.get("stop_hook_active"):
             return None, "", ""       # 已經退回過一次，不要連擋
@@ -418,9 +544,21 @@ def main():
         sys.exit(0)
 
     floor = int(argv[argv.index("--min") + 1]) if "--min" in argv else MIN_ZH
-    if not text or len(ZH.findall(text)) < floor:
+    if not text:
         sys.exit(0)
     if os.environ.get("COPY_JUDGE_OFF") or os.environ.get("COPY_JUDGE_INNER"):
+        sys.exit(0)
+
+    # 他剛說看不懂、我剛重寫一版的時候走另一條路：兩份一起比，不打分數。
+    # 打分數那個問法在考題上分不出好壞，而這個時候手上剛好有兩份可以比。
+    nzh = len(ZH.findall(text))
+    if path == "（這一則回話）" and nzh >= PAIR_MIN:
+        pair = fresh_complaint()
+        if pair and pair["reply"].strip() != text.strip():
+            gate_rewrite(pair, text)
+            sys.exit(0)
+
+    if nzh < floor:
         sys.exit(0)
     if "--force" not in argv and seen(text):
         sys.exit(0)

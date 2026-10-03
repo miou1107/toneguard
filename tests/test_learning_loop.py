@@ -176,6 +176,48 @@ def test_missing_score_is_not_zero():
     check("真的 0 分照樣過得去", (sc, err), (0, ""))
 
 
+def test_rewrite_gate():
+    """他說看不懂、我重寫一版的時候，那一關要擋得住比原稿還難讀的重寫。
+
+    一次模型呼叫都不花：把送問那一段換成固定答案，只測這一關怎麼決定。
+    四種情形都要測，只測「該擋的擋住了」的話，一個每次都擋人的版本也會通過。
+    """
+    m = load(ROOT / "hooks" / "copy_judge.py", "copy_judge_gate_test")
+    m.used = lambda *a, **k: False          # 不要在測試裡寫狀態檔
+    m.log = lambda *a, **k: None
+    m.time.sleep = lambda *a, **k: None
+    pair = {"ts": "2026-10-03T22:00:00", "question": "修好了嗎",
+            "reply": "他退掉的那一版稿，裡面在交代我改了哪幾支程式。"}
+
+    def with_answers(answers):
+        """answers 照順序回給每一次呼叫。'A'、'B' 是答案，None 是答不出來。"""
+        box = list(answers)
+
+        class R:
+            def __init__(self, out):
+                self.stdout = out
+
+        def fake(prompt):
+            a = box.pop(0) if box else None
+            return R("亂回一句，沒有 JSON" if a is None
+                     else '{"harder": "%s", "why": "第一句沒有回答他問的那件事"}' % a)
+        m.ask_model = fake
+        try:
+            m.gate_rewrite(pair, "我重寫的這一版。")
+        except SystemExit as e:
+            return e.code
+        return 0
+
+    # 兩種位置都說我這一版比較難讀 → 要擋
+    check("重寫比原稿還難讀，擋得住", with_answers(["B", "A"]), 2)
+    # 第一次就說他退掉的那一版比較難讀 → 我改好了，不擋
+    check("重寫比原稿好，放行", with_answers(["A"]), 0)
+    # 位置換過來答案就反了 → 它在看位置，不算，不擋
+    check("兩種位置答案不一樣，放行", with_answers(["B", "B"]), 0)
+    # 模型答不出來 → 不擋（agy 兩次、換 Claude 再兩次）
+    check("問不到答案，放行", with_answers([None] * 4), 0)
+
+
 def main():
     test_headings()
     test_every_block_term_really_blocks()
@@ -186,6 +228,7 @@ def main():
     test_stats()
     test_baseline_uses_the_rows_it_is_given()
     test_missing_score_is_not_zero()
+    test_rewrite_gate()
     print()
     if fails:
         print(f"{len(fails)} 條沒過：" + "、".join(fails))

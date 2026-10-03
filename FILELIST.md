@@ -5,10 +5,10 @@
 | 檔案 | 做什麼 | 掛在哪 |
 |---|---|---|
 | `coined_word_guard.py` | 掃詞：自創量詞、口語動詞、比喻、把機器狀態講成人的動作 | PreToolUse（每一個工具，比對規則是 `.*`）與 Stop |
-| `copy_judge.py` | 讀「他問的那一句」加上回覆，給 0 到 10 分。畫面上的短句先收起來，一輪結束再一起判 | PreToolUse（改檔案、Bash）與 Stop |
+| `copy_judge.py` | 讀「他問的那一句」加上回覆，給 0 到 10 分。他說看不懂之後，下一次回話改走另一條路：把他退掉的那一份跟重寫的這一份一起送進去問哪一份比較難讀，重寫的那一份還比較難讀就擋。畫面上的短句先收起來，一輪結束再一起判 | PreToolUse（改檔案、Bash）與 Stop |
 | `copy_gate_on_edit.py` | 這次動到引號裡的中文、或要送留言出去，就要求先跑文案 skill | PreToolUse（改檔案、Bash） |
 | `copy-voice-inject.py` | 每一輪把他自己寫過的句子送進 context | UserPromptSubmit |
-| `complaint_learn.py` | 他說聽不懂就分析上一輪問答分四種原因；他說寫得好就把前一則存進 `approved.jsonl` | UserPromptSubmit |
+| `complaint_learn.py` | 他說聽不懂就分析上一輪問答分四種原因，連同是哪一個對話說的一起存進 `complaints.jsonl`，重寫那一關要拿它來比；他說寫得好就把前一則存進 `approved.jsonl` | UserPromptSubmit |
 
 ## copy-rules/　規則與情境
 

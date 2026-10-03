@@ -32,7 +32,6 @@ import json
 import math
 import os
 import pathlib
-import re
 import subprocess
 import sys
 import threading
@@ -262,27 +261,12 @@ def judge_module():
     return m
 
 
-def ask_harder(m, rubric, question, a, b, tries=3):
-    """問一次「A 跟 B 哪一份比較難讀」，回 ('A' 或 'B', 一句原因)。問不到回 (None, '')。"""
-    prompt = (rubric.replace("{QUESTION}", (question or "（沒有指定）")[:600])
-              .replace("{A}", a[:6000]).replace("{B}", b[:6000]))
-    for i in range(tries):
-        try:
-            r = m.ask_model(prompt)
-        except Exception:
-            time.sleep(3 * (i + 1))
-            continue
-        hit = re.search(r"\{.*\}", r.stdout, re.S)
-        if hit:
-            try:
-                d = json.loads(hit.group(0))
-            except Exception:
-                d = {}
-            h = str(d.get("harder", "")).strip().strip('"').upper()
-            if h in ("A", "B"):
-                return h, str(d.get("why", ""))[:100]
-        time.sleep(3 * (i + 1))
-    return None, ""
+def ask_harder(m, rubric, question, a, b):
+    """問一次「A 跟 B 哪一份比較難讀」。送問那一段借掃詞那一側的，不要在這裡再寫一份。
+
+    fallback 一定要關掉。開著的話 agy 答不出來就自動換成 Claude，
+    兩種判官的答案會混在同一張成績單上，而這張成績單存在的理由正是不要出現這種比法。"""
+    return m.ask_harder(question, a, b, fallback=False)
 
 
 def exam_compare(pairs, workers, name="配對比較題"):

@@ -30,7 +30,11 @@ COMPLAIN = re.compile(
     r"聽不懂|看不懂|看不下去|不知道你在(?:寫|說|講)|你為何不能講清楚|"
     r"文筆.{0,8}(?:爛|差|不好|很糟)|寫的東西.{0,12}(?:爛|差|不好|讀不懂|看不懂)|"
     r"一般人.{0,6}(?:讀不懂|看不懂)|不是一般人.{0,6}(?:讀|看)得懂|潤稿|"
-    r"文案.{0,8}(?:爛|差|不好|很糟)|自己發明|零碎|破碎|不是台灣人|太長")
+    r"文案.{0,8}(?:爛|差|不好|很糟)|自己發明|零碎|破碎|不是台灣人|太長|"
+    # 2026-10-03 他連說三次「不懂」「還是不懂」這種只有兩三個字的，舊規則一句都沒抓到，
+    # 那三則稿因此沒有存成考題。整句就是那幾個字才算，
+    # 不然「使用者不懂專業名詞」這種他在講別人的句子會被當成他在退我的稿。
+    r"^\s*(?:我|還是|真的|有點|完全|就是)?\s*[不沒]懂[\s。！，?？]*$")
 NOISE = re.compile(r"<task-notification>|<system-reminder>|<local-command|"
                    r"hook additional context|SYSTEM NOTIFICATION|tool_use_id|Caveat:")
 # 他說「這句寫很好」的時候，前一則就是唯一乾淨的正面樣本。
@@ -197,7 +201,9 @@ def main():
         OUT.parent.mkdir(parents=True, exist_ok=True)
         with OUT.open("a", encoding="utf-8") as f:
             # 時間要寫進去。這份紀錄是結果指標，沒有時間就畫不出他抱怨的頻率有沒有降。
+            # session 要記。另一個對話剛被退稿的時候，我這邊不可以拿他的稿來比。
             f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                "session": payload.get("session_id") or "",
                                 "question": question[:600], "reply": reply[:3000],
                                 "complaint": msg[:200], "kind": kind,
                                 "how": how}, ensure_ascii=False) + "\n")
