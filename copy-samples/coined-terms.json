@@ -265,6 +265,62 @@
       "level": "block",
       "note": "把證據講成材料，是自己組的比喻",
       "origin": "2026-09-21 一張看板標籤的說明"
+    },
+    {
+      "bad": "有一件事要先跟妳說",
+      "good": "提醒事項（小標）；段落開頭寫「依妳的要求……設定，但會有一個情況要先理解。因為……所以……」",
+      "level": "block",
+      "note": "口語小標",
+      "origin": "2026-09-24 idaytour #289 Vin 親手改"
+    },
+    {
+      "bad": "有一件事要先跟你說",
+      "good": "提醒事項",
+      "level": "block",
+      "note": "口語小標",
+      "origin": "2026-09-24 idaytour #289"
+    },
+    {
+      "bad": "## 怎麼看",
+      "good": "## 查看方式說明",
+      "level": "block",
+      "note": "口語小標",
+      "origin": "2026-09-24 idaytour #289 Vin 親手改"
+    },
+    {
+      "bad": "## 怎麼驗",
+      "good": "## 驗收方式說明",
+      "level": "block",
+      "note": "同一種口語小標",
+      "origin": "2026-09-24 idaytour #314 #315"
+    },
+    {
+      "bad": "## 怎麼重測",
+      "good": "## 重新測試方式說明",
+      "level": "block",
+      "note": "同一種口語小標",
+      "origin": "2026-09-24 idaytour #289"
+    },
+    {
+      "bad": "## 為什麼會這樣",
+      "good": "## 原因說明",
+      "level": "block",
+      "note": "同一種口語小標",
+      "origin": "2026-09-24 idaytour #330"
+    },
+    {
+      "bad": "## 畫面上哪裡不對",
+      "good": "## 問題說明",
+      "level": "block",
+      "note": "同一種口語小標",
+      "origin": "2026-09-24 idaytour #330"
+    },
+    {
+      "bad": "畫面會怎樣",
+      "good": "呈現結果",
+      "level": "block",
+      "note": "口語欄位標題",
+      "origin": "2026-09-24 idaytour #289 Vin 親手改"
     }
   ],
   "prefer": [
