@@ -11,6 +11,17 @@
    "p_value": 0.39,
    "length_rule": "8/9",
    "pass": true
+  },
+  "gemini-3.8-flash-low": {
+   "ran": "2026-10-03",
+   "pairs": 9,
+   "both": 4,
+   "wrong": 3,
+   "position_only": 2,
+   "unanswered": 0,
+   "p_value": 50.0,
+   "length_rule": "8/9",
+   "pass": false
   }
  },
  "ran": "2026-10-03",
