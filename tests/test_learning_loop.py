@@ -162,11 +162,16 @@ def test_missing_score_is_not_zero():
     """
     m = load(ROOT / "hooks" / "copy_judge.py", "copy_judge_test")
 
+    real_run = m.subprocess.run       # 換掉的是真的那個模組，跑完要放回去
+
     def ask(reply):
         class R:
             stdout = reply
         m.subprocess.run = lambda *a, **k: R()
-        return m.judge("這一段中文的長度不影響結果，判的是模型回了什麼。", "他問的那一句")
+        try:
+            return m.judge("這一段中文的長度不影響結果，判的是模型回了什麼。", "他問的那一句")
+        finally:
+            m.subprocess.run = real_run
 
     sc, issues, err = ask('{"issues": [], "reason": "沒問題"}')
     check("沒給分數就說沒判成", bool(err), True)
@@ -180,24 +185,27 @@ def test_rewrite_gate():
     """他說看不懂、我重寫一版的時候，那一關要擋得住比原稿還難讀的重寫。
 
     一次模型呼叫都不花：把送問那一段換成固定答案，只測這一關怎麼決定。
-    四種情形都要測，只測「該擋的擋住了」的話，一個每次都擋人的版本也會通過。
+    五種情形都要測，只測「該擋的擋住了」的話，一個每次都擋人的版本也會通過。
     """
     m = load(ROOT / "hooks" / "copy_judge.py", "copy_judge_gate_test")
+    m.PAIR_RUBRIC = ROOT / "copy-samples" / "judge-rubric-pair.txt"   # 不要讀家目錄那份
     m.used = lambda *a, **k: False          # 不要在測試裡寫狀態檔
     m.log = lambda *a, **k: None
     m.time.sleep = lambda *a, **k: None
     pair = {"ts": "2026-10-03T22:00:00", "question": "修好了嗎",
             "reply": "他退掉的那一版稿，裡面在交代我改了哪幾支程式。"}
 
-    def with_answers(answers):
-        """answers 照順序回給每一次呼叫。'A'、'B' 是答案，None 是答不出來。"""
+    def with_answers(answers, allowed=None):
+        """answers 照順序回給每一次呼叫。'A'、'B' 是答案，None 是答不出來。
+        allowed 是成績單上准擋人的那幾個模型。"""
         box = list(answers)
+        m.allowed_models = lambda: ({m.MODEL} if allowed is None else allowed)
 
         class R:
             def __init__(self, out):
                 self.stdout = out
 
-        def fake(prompt):
+        def fake(prompt, who=None):
             a = box.pop(0) if box else None
             return R("亂回一句，沒有 JSON" if a is None
                      else '{"harder": "%s", "why": "第一句沒有回答他問的那件事"}' % a)
@@ -208,14 +216,42 @@ def test_rewrite_gate():
             return e.code
         return 0
 
-    # 兩種位置都說我這一版比較難讀 → 要擋
+    # 兩種位置都說我這一版比較難讀，而且考過了 → 要擋
     check("重寫比原稿還難讀，擋得住", with_answers(["B", "A"]), 2)
+    # 同樣的答案，但這個問法還沒考過 → 只准提醒，不准擋
+    check("沒考過就不准擋人", with_answers(["B", "A"], allowed=set()), 0)
+    # 考過的是另一個模型，答話的不是它 → 只准提醒
+    check("答話的不是考過的那個判官，不擋",
+          with_answers(["B", "A"], allowed={m.CLAUDE_MODEL}), 0)
     # 第一次就說他退掉的那一版比較難讀 → 我改好了，不擋
     check("重寫比原稿好，放行", with_answers(["A"]), 0)
     # 位置換過來答案就反了 → 它在看位置，不算，不擋
     check("兩種位置答案不一樣，放行", with_answers(["B", "B"]), 0)
-    # 模型答不出來 → 不擋（agy 兩次、換 Claude 再兩次）
-    check("問不到答案，放行", with_answers([None] * 4), 0)
+    # 模型答不出來 → 不擋（一個出口只問一次，agy 一次、換 Claude 一次）
+    check("問不到答案，放行", with_answers([None, None]), 0)
+
+
+def test_used_is_per_session():
+    """同一次抱怨只檢查一次，而且兩個對話不可以互相蓋掉。
+
+    本來整個檔只存一筆，所以後寫的對話把前一個蓋掉，前一個就變成「還沒檢查過」，
+    於是他每問一件事就多擋一輪。
+    """
+    import tempfile
+    m = load(ROOT / "hooks" / "copy_judge.py", "copy_judge_used_test")
+    with tempfile.TemporaryDirectory() as d:
+        m.STATE = pathlib.Path(d)
+        m.PAIR_USED = pathlib.Path(d) / "pair-gate-used.json"
+        m.SESSION[0] = "甲對話"
+        check("還沒標記過的時候是 False", m.used("22:00"), False)
+        m.used("22:00", mark=True)
+        check("標記完就是 True", m.used("22:00"), True)
+        m.SESSION[0] = "乙對話"
+        m.used("22:05", mark=True)
+        check("乙對話標記自己那次", m.used("22:05"), True)
+        m.SESSION[0] = "甲對話"
+        check("甲對話那一筆沒有被乙對話蓋掉", m.used("22:00"), True)
+        check("甲對話沒標記過的時間還是 False", m.used("23:00"), False)
 
 
 def main():
@@ -229,6 +265,7 @@ def main():
     test_baseline_uses_the_rows_it_is_given()
     test_missing_score_is_not_zero()
     test_rewrite_gate()
+    test_used_is_per_session()
     print()
     if fails:
         print(f"{len(fails)} 條沒過：" + "、".join(fails))

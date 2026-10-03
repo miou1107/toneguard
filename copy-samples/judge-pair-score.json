@@ -1,0 +1,18 @@
+{
+ "rubric_sha1": "d57734cf9fb4",
+ "models": {
+  "claude-sonnet-5-5": {
+   "ran": "2026-10-03",
+   "pairs": 9,
+   "both": 8,
+   "wrong": 0,
+   "position_only": 1,
+   "unanswered": 0,
+   "p_value": 0.39,
+   "length_rule": "8/9",
+   "pass": true
+  }
+ },
+ "ran": "2026-10-03",
+ "note": "models 一個模型一筆。both 是兩種位置都挑中爛的那一份的對數，pass 要 both ≥ 7 而且瞎猜機率 ≤ 10%。回話那一關只准讓 pass 成立的那幾個模型擋人，而且規範簽章要對得上。length_rule 是「比較長的那一份是爛的」在同一批題目對幾對 —— 它跟 both 一樣高的時候，這張成績單還不足以說判官在讀內容。"
+}

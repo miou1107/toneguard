@@ -59,6 +59,7 @@ UI_QUESTION = ("讀的人是使用者，他正卡在畫面上。他心裡只有�
 RUBRIC_FILE = SAMPLES / "judge-rubric.txt"   # tune_judge.py 會改這一份
 PAIR_RUBRIC = SAMPLES / "judge-rubric-pair.txt"   # 兩份一起比的那個問法
 COMPLAINTS = SAMPLES / "complaints.jsonl"
+PAIR_CARD = SAMPLES / "judge-pair-score.json"   # 兩份一起比那個問法的成績單
 PAIR_USED = STATE / "pair-gate-used.json"
 PAIR_MIN = 50         # 重寫出來的那版通常比原稿短，回話那關的門檻會整個跳過
 PAIR_FRESH = 900      # 他說看不懂之後十五分鐘內算同一件事，更早的是別的問題
@@ -174,19 +175,21 @@ def backend():
     return "claude" if os.environ.get("COPY_JUDGE_BACKEND") == "claude" else "agy"
 
 
-def model_name():
+def model_name(who=None):
     """實際問到的那個模型的名字。考試要把它寫進成績單與快取的鍵，
     不然換了判官之後，兩種判官的分數會混在同一張成績單上。"""
-    return CLAUDE_MODEL if backend() == "claude" else MODEL
+    return CLAUDE_MODEL if (who or backend()) == "claude" else MODEL
 
 
-def ask_model(prompt):
-    """送一次問題出去。
+def ask_model(prompt, who=None):
+    """送一次問題出去。要問誰用參數決定，不要去改 os.environ ——
+    考試是好幾條同時跑的，改共用的環境變數會變成這一條設的值被另一條清掉，
+    於是第三條問了另一個模型，而快取的鍵在開跑前就算好了。
 
     走 claude 的時候一定要帶 --restricted：它會略過使用者與專案的設定檔，
     所以被叫起來的那個 claude 不會再跑一次這支掛勾，問一題變成問無限題。
     COPY_JUDGE_INNER 是第二道，萬一設定檔的來源以後改了，它照樣會當場結束。"""
-    if backend() == "claude":
+    if (who or backend()) == "claude":
         env = dict(os.environ, COPY_JUDGE_INNER="1")
         return subprocess.run(
             ["claude", "-p", prompt, "--model", CLAUDE_MODEL,
@@ -194,6 +197,7 @@ def ask_model(prompt):
             capture_output=True, text=True, timeout=240, env=env)
     return subprocess.run(["agy", "--model", MODEL, "-p", prompt],
                           capture_output=True, text=True, timeout=TIMEOUT)
+
 
 
 def judge(text, question=""):  # noqa: C901
@@ -247,45 +251,54 @@ def judge(text, question=""):  # noqa: C901
 
 
 def ask_harder(question, a, b, fallback=True):
-    """問一次「A 跟 B 哪一份比較難讀」，回 ('A' 或 'B', 一句原因)。問不到回 (None, '')。
+    """問一次「A 跟 B 哪一份比較難讀」，回 ('A' 或 'B', 一句原因, 回答的是誰)。
+    問不到回 (None, '', '')。
 
-    agy 答不出來的時候換成問 Claude。Claude 用的是 Vin 自己訂的額度，
-    所以只有這一條路會自動換 —— 它只在他剛說看不懂、我剛重寫一版的時候跑。"""
+    一個出口只問一次。問兩次的話，agy 沒額度再加上換手，一次把關最多八次呼叫，
+    而 Claude 用的是 Vin 自己訂的額度。寧可這一次放行，下一次他再說一句就有第二次機會。"""
     try:
         rub = PAIR_RUBRIC.read_text(encoding="utf-8")
     except Exception:
-        return None, ""
+        return None, "", ""
     prompt = (rub.replace("{QUESTION}", (question or "（沒有指定）")[:600])
               .replace("{A}", a[:6000]).replace("{B}", b[:6000]))
     plans = [backend()] + (["claude"] if fallback and backend() != "claude" else [])
     for who in plans:
-        env_was = os.environ.get("COPY_JUDGE_BACKEND")
-        os.environ["COPY_JUDGE_BACKEND"] = who
         try:
-            for i in range(2):
-                try:
-                    r = ask_model(prompt)
-                except Exception:
-                    time.sleep(2)
-                    continue
-                hit = re.search(r"\{.*\}", r.stdout, re.S)
-                if not hit:
-                    time.sleep(2)
-                    continue
-                try:
-                    d = json.loads(hit.group(0))
-                except Exception:
-                    time.sleep(2)
-                    continue
-                h = str(d.get("harder", "")).strip().strip('"').upper()
-                if h in ("A", "B"):
-                    return h, str(d.get("why", ""))[:120]
-        finally:
-            if env_was is None:
-                os.environ.pop("COPY_JUDGE_BACKEND", None)
-            else:
-                os.environ["COPY_JUDGE_BACKEND"] = env_was
-    return None, ""
+            r = ask_model(prompt, who)
+        except Exception:
+            continue
+        hit = re.search(r"\{.*\}", r.stdout, re.S)
+        if not hit:
+            continue
+        try:
+            d = json.loads(hit.group(0))
+        except Exception:
+            continue
+        h = str(d.get("harder", "")).strip().strip('"').upper()
+        if h in ("A", "B"):
+            # 回模型的名字，不是出口的名字。成績單上記的是模型，
+            # 回出口名字的話兩邊永遠對不上，這一關就永遠不會擋人。
+            return h, str(d.get("why", ""))[:120], model_name(who)
+    return None, "", ""
+
+
+def allowed_models():
+    """哪幾個模型考過了，准它擋人。沒考過就只提醒 —— 這條跟打分數那條一樣。
+
+    一個模型一筆。考過的是 Claude 不代表 agy 也行：打分數那個問法上兩個模型一樣爛，
+    但兩份一起比這個問法只量過 Claude。拿沒量過的那個去擋人，就是在賭。
+
+    成績單上的規範簽章跟現在這份對不上，表示有人改過規範而還沒重考，那就一個都不准擋。"""
+    try:
+        card = json.loads(PAIR_CARD.read_text(encoding="utf-8"))
+        sig = hashlib.sha1(PAIR_RUBRIC.read_bytes()).hexdigest()[:12]
+        if card.get("rubric_sha1") != sig:
+            return set()
+        return {name for name, r in (card.get("models") or {}).items()
+                if isinstance(r, dict) and r.get("pass")}
+    except Exception:
+        return set()
 
 
 def fresh_complaint():
@@ -303,7 +316,8 @@ def fresh_complaint():
             d = json.loads(line)
         except Exception:
             continue
-        if not d.get("reply") or not d.get("ts"):
+        # 語料是人手可以改的，reply 不是字串的時候整支掛勾不可以爆掉
+        if not isinstance(d.get("reply"), str) or not d["reply"] or not d.get("ts"):
             continue
         # 別的對話剛被退稿，不要拿他的稿來比
         if d.get("session") and SESSION[0] and d["session"] != SESSION[0]:
@@ -312,25 +326,36 @@ def fresh_complaint():
             t = time.mktime(time.strptime(d["ts"], "%Y-%m-%dT%H:%M:%S"))
         except Exception:
             continue
-        if time.time() - t > PAIR_FRESH:
-            return None
-        if used(d["ts"]):
+        if time.time() - t > PAIR_FRESH or used(d["ts"]):
             return None
         return d
     return None
 
 
 def used(ts, mark=False):
-    """同一次抱怨只擋一次。不記的話，他換了話題之後，
-    接下來十五分鐘每一則回話都會被拿去跟那份舊稿比。"""
+    """同一次抱怨只檢查一次。不記的話，他換了話題之後，
+    接下來十五分鐘每一則回話都會被拿去跟那份舊稿比，而且問的還是舊的那一句。
+
+    一個對話一筆。本來整個檔只存一筆，兩個對話同時在跑的時候，
+    後寫的那一筆把前一筆蓋掉，前一個對話就變成「還沒檢查過」，於是一直重新檢查。"""
+    sid = SESSION[0] or "（沒有對話編號）"
     try:
-        if mark:
-            STATE.mkdir(parents=True, exist_ok=True)
-            PAIR_USED.write_text(json.dumps({"ts": ts, "session": SESSION[0]}),
-                                 encoding="utf-8")
-            return True
-        d = json.loads(PAIR_USED.read_text(encoding="utf-8"))
-        return d.get("ts") == ts
+        if not mark:
+            d = json.loads(PAIR_USED.read_text(encoding="utf-8"))
+            return isinstance(d, dict) and d.get(sid) == ts
+        try:
+            d = json.loads(PAIR_USED.read_text(encoding="utf-8"))
+            d = d if isinstance(d, dict) else {}
+        except Exception:
+            d = {}
+        d[sid] = ts
+        if len(d) > 40:                      # 只留最近那幾個對話，不要無限長大
+            d = dict(sorted(d.items(), key=lambda kv: kv[1])[-40:])
+        STATE.mkdir(parents=True, exist_ok=True)
+        tmp = PAIR_USED.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, PAIR_USED)           # 兩個對話同時寫也不會讀到半個檔
+        return True
     except Exception:
         return False
 
@@ -341,10 +366,9 @@ def gate_rewrite(pair, text):
     兩種位置都說我這份比較難讀才擋。只問一次的話，一個永遠挑 A 的判官會無故擋人；
     考題上九對就有一對是這樣。位置換過來還是同一個答案，才算它在讀內容。
     它說他退掉的那份比較難讀 —— 也就是我改好了 —— 就只問一次，不多花一次。"""
-    old = pair["reply"]
-    q = pair.get("question", "")
-    used(pair["ts"], mark=True)
-    h1, why1 = ask_harder(q, old, text)        # 他退掉的當 A、我這份當 B
+    old, q = pair["reply"], pair.get("question", "")
+    may = allowed_models()
+    h1, why1, who1 = ask_harder(q, old, text)        # 他退掉的當 A、我這份當 B
     if h1 is None:
         print("［讀者審查］沒判成，這一版沒有人讀過。")
         return
@@ -352,17 +376,26 @@ def gate_rewrite(pair, text):
         log("重寫比原稿好", "（這一則回話）", 0)
         print("［讀者審查］跟他退掉的那一版比，這一版比較好讀。")
         return
-    h2, why2 = ask_harder(q, text, old)        # 位置換過來：我這份當 A
+    h2, why2, who2 = ask_harder(q, text, old)        # 位置換過來：我這份當 A
     if h2 != "A":
         log("兩種位置答案不一樣", "（這一則回話）", 0)
         print("［讀者審查］換個順序再問，答案就反了，所以這一次不算，照原樣送出去。")
         return
-    log("重寫還是比較難讀", "（這一則回話）", 1)
-    print("［讀者審查］他剛說看不懂，這一版比他退掉的那一版還難讀，不要送出去。\n"
-          f"   壞在：{why1 or why2}\n"
-          "   重寫一版：第一句直接回答他問的那件事，答完就停。",
-          file=sys.stderr)
+    # 兩次要是同一個模型答的，而且那個模型在這個問法上考過，才准擋人。
+    trusted = who1 == who2 and who1 in may
+    log("退回" if trusted else "提醒", "（這一則回話）", 1, gate="重寫比原稿還難讀")
+    head = ("他剛說看不懂，這一版比他退掉的那一版還難讀，不要送出去。" if trusted else
+            "他剛說看不懂，這一版看起來比他退掉的那一版還難讀。"
+            f"（{who1} 還沒用這個問法考過，所以只提醒）")
+    msg = (f"［讀者審查］{head}\n"
+           f"   壞在：{why1 or why2}\n"
+           "   重寫一版：第一句直接回答他問的那件事，答完就停。")
+    if not trusted:
+        print(msg)
+        return
+    print(msg, file=sys.stderr)
     sys.exit(2)
+
 
 
 def may_block(is_reply):
@@ -380,14 +413,15 @@ def may_block(is_reply):
         return False
 
 
-def log(kind, path, n):
+def log(kind, path, n, gate="打分數"):
     """每一筆都要寫時間。沒有時間就答不出「它從哪一天開始判不了」、
     「這一週每百則攔了幾則」，而那兩題正是判斷它有沒有在工作的題目。"""
     try:
         STATE.mkdir(parents=True, exist_ok=True)
         with (STATE / "judged.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                                "kind": kind, "path": path, "issues": n},
+                                "kind": kind, "gate": gate,
+                                "path": path, "issues": n},
                                ensure_ascii=False) + "\n")
     except Exception:
         pass
@@ -528,9 +562,12 @@ def flush_ui():
 
 def main():
     argv = sys.argv[1:]
+    # 這兩個要擺在所有入口前面。COPY_JUDGE_INNER 是判官自己叫起來的那個 claude，
+    # 它一個字都不准判，不然問一題變成問無限題；--ui-flush 也是一個入口。
+    if os.environ.get("COPY_JUDGE_OFF") or os.environ.get("COPY_JUDGE_INNER"):
+        sys.exit(0)
     if "--ui-flush" in argv:
-        if not os.environ.get("COPY_JUDGE_OFF"):
-            flush_ui()
+        flush_ui()
         sys.exit(0)
     question = argv[argv.index("--question") + 1] if "--question" in argv else ""
     if "--file" in argv:
@@ -546,16 +583,19 @@ def main():
     floor = int(argv[argv.index("--min") + 1]) if "--min" in argv else MIN_ZH
     if not text:
         sys.exit(0)
-    if os.environ.get("COPY_JUDGE_OFF") or os.environ.get("COPY_JUDGE_INNER"):
-        sys.exit(0)
 
     # 他剛說看不懂、我剛重寫一版的時候走另一條路：兩份一起比，不打分數。
     # 打分數那個問法在考題上分不出好壞，而這個時候手上剛好有兩份可以比。
     nzh = len(ZH.findall(text))
-    if path == "（這一則回話）" and nzh >= PAIR_MIN:
+    if path == "（這一則回話）":
         pair = fresh_complaint()
-        if pair and pair["reply"].strip() != text.strip():
-            gate_rewrite(pair, text)
+        if pair:
+            # 不管比不比得成，這一次抱怨到這裡就算用掉。重寫得短本來就是改好的常態，
+            # 不標記的話，他換了話題之後下一則長回話會被拿去跟這份舊稿比，
+            # 而且送給判官的還是舊的那一句，於是一則完全正確的回話被擋下來。
+            used(pair["ts"], mark=True)
+            if nzh >= PAIR_MIN and pair["reply"].strip() != text.strip():
+                gate_rewrite(pair, text)
             sys.exit(0)
 
     if nzh < floor:

@@ -24,6 +24,7 @@ judge_exam.py — 考語意判官，順便決定門檻要訂幾分。
     python3 judge_exam.py --all               # 抱怨過的全部考完，另外兩群各取同樣多段
     python3 judge_exam.py --n 60 --workers 8
     python3 judge_exam.py --pairs             # 配對題，見 exam_pairs()
+    python3 judge_exam.py --compare           # 換問法：兩份一起比，見 exam_compare()
 """
 import datetime
 import hashlib
@@ -45,12 +46,15 @@ CARD = HERE / "judge-score.json"
 CACHE = HERE / "judge-exam-cache.json"
 RUBRIC = HERE / "judge-rubric.txt"
 PAIR_RUBRIC = HERE / "judge-rubric-pair.txt"
+PAIR_CARD = HERE / "judge-pair-score.json"
 JUDGE = pathlib.Path.home() / ".claude" / "hooks" / "copy_judge.py"
 
 PASS_RECALL = 70      # 抓到率至少
 PASS_NAG = 25         # 打擾率最多：每四則回話最多攔一則
 PASS_FP = 15          # 他親口說好的那一群，最多誤打這個比例
 PASS_COVERAGE = 90    # 每一群至少要問到這個比例的題目，不然這張成績單不算數
+PASS_PAIRS = 7        # 配對比較題：九對裡至少要兩種位置都挑中爛的這麼多對
+PASS_PAIR_P = 10      # 而且瞎猜也能這麼好的機率不可以超過這個百分比
 
 LOCK = threading.Lock()
 
@@ -81,11 +85,19 @@ def save_cache(cache):
     兩個都是真的會掉分數：八條同時問的時候，json.dumps 會讀到別的那一條正在改的同一本
     字典，整支程式停在 RuntimeError，當下那幾題付過錢的分數就沒存到；寫到一半按 Ctrl-C
     會把檔案截一半，而 load_cache() 讀不過就回一本空的，等於 247 題全部重新付一次錢。"""
+    # 整段都要在鎖裡面，而且暫存檔名要每一次都不一樣。
+    # 兩條同時寫同一個暫存檔的時候，先換好的那一條把檔案移走，
+    # 後面那一條的 os.replace 就找不到來源，整支程式停在 FileNotFoundError。
+    # 2026-10-03 配對比較那一輪真的撞到：三條同時跑，每四題存一次。
     with LOCK:
         snap = dict(cache)
-    tmp = CACHE.parent / (CACHE.name + ".tmp")
-    tmp.write_text(json.dumps(snap), encoding="utf-8")
-    os.replace(tmp, CACHE)
+        tmp = CACHE.parent / f"{CACHE.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            tmp.write_text(json.dumps(snap), encoding="utf-8")
+            os.replace(tmp, CACHE)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
 
 
 def stamp_of(rubric):
@@ -261,12 +273,13 @@ def judge_module():
     return m
 
 
-def ask_harder(m, rubric, question, a, b):
+def ask_harder(m, question, a, b):
     """問一次「A 跟 B 哪一份比較難讀」。送問那一段借掃詞那一側的，不要在這裡再寫一份。
 
     fallback 一定要關掉。開著的話 agy 答不出來就自動換成 Claude，
     兩種判官的答案會混在同一張成績單上，而這張成績單存在的理由正是不要出現這種比法。"""
-    return m.ask_harder(question, a, b, fallback=False)
+    h, why, _who = m.ask_harder(question, a, b, fallback=False)
+    return h, why
 
 
 def exam_compare(pairs, workers, name="配對比較題"):
@@ -275,12 +288,16 @@ def exam_compare(pairs, workers, name="配對比較題"):
     每一對要問兩次，爛的那一份先當 A、再當 B。只問一次的話，
     一個「永遠挑 A」的判官會拿到滿分或零分，而那不是在讀內容，是在看位置。
     兩次都挑中爛的才算對；兩次挑同一個位置，就是它在看位置。"""
-    rubric = PAIR_RUBRIC.read_text(encoding="utf-8")
     m = judge_module()
+    # 規範要讀掛勾那一側的那一份，不是這個工作目錄裡的。
+    # 真正送給模型的是掛勾讀的那一份，兩邊讀不同檔的時候，
+    # 成績單記的是這邊改過的規範、問出去的卻是另一邊那份，而改規範的流程正好會走到那裡。
+    rubric = m.PAIR_RUBRIC.read_text(encoding="utf-8")
+    rub_sig = hashlib.sha1(m.PAIR_RUBRIC.read_bytes()).hexdigest()[:12]
     model = m.model_name() if hasattr(m, "model_name") else m.MODEL
     sig = hashlib.sha1((rubric + "\x00" + model).encode("utf-8")).hexdigest()[:12]
     cache = load_cache()
-    print(f"比較用的規範 {hashlib.sha1(rubric.encode()).hexdigest()[:12]}、"
+    print(f"比較用的規範 {rub_sig}、"
           f"判官 {model}，{len(pairs)} 對，一對問兩次\n", flush=True)
 
     jobs = []
@@ -297,14 +314,16 @@ def exam_compare(pairs, workers, name="配對比較題"):
         k = "cmp:" + hashlib.sha1(
             (sig + "\x00" + order + "\x00" + a + "\x00" + b).encode("utf-8")
         ).hexdigest()[:20]
+        asked = False
         if cache.get(k) is None:
-            h, why = ask_harder(m, rubric, pairs[i].get("question", ""), a, b)
+            asked = True
+            h, why = ask_harder(m, pairs[i].get("question", ""), a, b)
             if h is not None:
                 cache[k] = h
         with LOCK:
             done[0] += 1
             c = done[0]
-        if c % 4 == 0:
+        if asked and c % 4 == 0:
             save_cache(cache)
             print(f"    {name} {c}/{len(jobs)}", flush=True)
         return (i, order, cache.get(k))
@@ -342,6 +361,34 @@ def exam_compare(pairs, workers, name="配對比較題"):
         print("沒有一對是靠內容判的，這個問法也不行。")
     lb = sum(1 for pr in pairs if len(pr["bad"]) > len(pr["good"]))
     print(f"只用「比較長的那一份是爛的」：{lb}/{len(pairs)} 對")
+
+    # 寫成績單。回話那一關要讀它才准擋人 —— 跟打分數那條路同一個規矩：考不過就只提醒。
+    # 沒有這一份的話，誰改了規範現場就跟著變，而且沒有任何東西會紅。
+    pv = (sum(math.comb(n, k) for k in range(both, n + 1)) / 2 ** n) * 100 if n else 100.0
+    # 一個模型一筆。考過的是 Claude 不代表 agy 也行，所以不要覆蓋別的模型那一筆。
+    try:
+        card = json.loads(PAIR_CARD.read_text(encoding="utf-8"))
+        card = card if isinstance(card, dict) else {}
+    except Exception:
+        card = {}
+    if card.get("rubric_sha1") != rub_sig:      # 規範換了，舊的那幾筆全部不算
+        card = {"rubric_sha1": rub_sig, "models": {}}
+    card.setdefault("models", {})
+    card["ran"] = datetime.date.today().isoformat()
+    card["note"] = ("models 一個模型一筆。both 是兩種位置都挑中爛的那一份的對數，"
+                    f"pass 要 both ≥ {PASS_PAIRS} 而且瞎猜機率 ≤ {PASS_PAIR_P}%。"
+                    "回話那一關只准讓 pass 成立的那幾個模型擋人，而且規範簽章要對得上。"
+                    "length_rule 是「比較長的那一份是爛的」在同一批題目對幾對 —— "
+                    "它跟 both 一樣高的時候，這張成績單還不足以說判官在讀內容。")
+    card["models"][model] = {
+        "ran": datetime.date.today().isoformat(), "pairs": len(pairs),
+        "both": both, "wrong": wrong, "position_only": pos, "unanswered": skip,
+        "p_value": round(pv, 2), "length_rule": f"{lb}/{len(pairs)}",
+        "pass": bool(both >= PASS_PAIRS and pv <= PASS_PAIR_P)}
+    PAIR_CARD.write_text(json.dumps(card, ensure_ascii=False, indent=1), encoding="utf-8")
+    ok = card["models"][model]["pass"]
+    print(f"成績單寫好了：{model} {'准擋人' if ok else '不准擋人，只提醒'}"
+          f"（{PAIR_CARD.name}）")
     return both, wrong, pos, skip
 
 
@@ -353,7 +400,9 @@ def main():
         exam_pairs(workers)
         return
     if "--compare" in argv:
-        exam_compare(read_jsonl(PAIRS, "python3 copy-samples/build_pairs.py"), workers)
+        # --n 要算，一對問兩次，所以 --n 3 是六次呼叫。他在意一次跑掉多少。
+        prs = read_jsonl(PAIRS, "python3 copy-samples/build_pairs.py")
+        exam_compare(prs[:n] if "--n" in argv else prs, workers)
         return
     rows = read_jsonl(GOLD, "python3 copy-samples/build_gold.py")
 
