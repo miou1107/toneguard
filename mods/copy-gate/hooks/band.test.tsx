@@ -73,6 +73,25 @@ test('an outward gh comment in Chinese that the gate beneath denies: counted as 
   await ui.unmount()
 })
 
+test('有東西被擋下來是紅色，只是還沒檢查是黃色', async ($, on) => {
+  const now = { t: T0 }
+  setup(on, now)
+  ;(on as any)('tool.call', { tool: 'Bash' }, () => ({ deny: '這一次要送出去給別人讀的中文，這一輪還沒跑過文案 skill。' }))
+  ;(on as any)('tool.call', () => ({ result: {}, text: 'ok' }))
+  await ($ as any).turn.start({ text: '回後台同事的留言', turnId: 't1' })
+  const colour = async () => {
+    const ui: any = await band($, 'terminal')
+    const label: any = await ui.find({ type: 'Text', text: /ToneGuard/ })
+    const c = label?.props?.color
+    await ui.unmount()
+    return c
+  }
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/a.md', content: '旅客會看到今天的行程' })
+  expect(await colour()).toBe('yellow')
+  await ($ as any).tool.call({ tool: 'Bash', command: 'gh issue comment 48 --body "拆單已修好，rc0.35.124 上測試機"' })
+  expect(await colour()).toBe('red')
+})
+
 test('補跑兩個 skill 之後變綠色，擋下幾條還是要留著', async ($, on) => {
   const now = { t: T0 }
   setup(on, now)

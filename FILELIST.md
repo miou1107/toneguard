@@ -14,8 +14,8 @@
 
 | 檔案 | 做什麼 | 掛在哪 |
 |---|---|---|
-| `copy-gate/hooks/register.tsx` | 這一輪有中文要給人讀的時候，用一行寫出兩個文案 skill 跑了沒，後面接這一輪碰到哪幾份中文。兩個都跑過是綠色，有一個沒跑是黃色。檔名最多列兩個，再多只寫數量；排不下就截斷，不換行 | `~/.claude/mods/copy-gate`，要在 settings.json 的 `CLAUDE_CODE_PLUGIN_DIRS` 列到 |
-| `copy-gate/hooks/band.test.tsx` | 那一行的測試，12 條 | 跑 `claude plugin test mods/copy-gate` |
+| `copy-gate/hooks/register.tsx` | 這一輪有中文要給人讀的時候，用一行寫出兩個文案 skill 跑了沒，後面接這一輪碰到哪幾份中文。兩個都跑過是綠色，還沒檢查是黃色，有指令真的被擋下來是紅色。檔名最多列兩個名字，再多只寫數量；排不下就截斷，不換行 | `~/.claude/mods/copy-gate`，要在 settings.json 的 `CLAUDE_CODE_PLUGIN_DIRS` 列到 |
+| `copy-gate/hooks/band.test.tsx` | 那一行的測試，13 條 | 跑 `claude plugin test mods/copy-gate` |
 | `copy-gate/.claude-plugin/plugin.json` | 外掛的名字與版本 | 同上 |
 
 ## copy-rules/　規則與情境

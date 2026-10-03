@@ -209,10 +209,13 @@ export const register: Register = on => {
       : [ds === 'ok' ? '' : missing('draft', ds, v.draftAt),
          ps === 'ok' ? '' : missing('polish', ps, v.polishAt)].filter(Boolean).join('，')
 
+    // 黃色是「我還沒檢查，你再等一下」；紅色是「有一句真的沒送出去，你可能要看一下」
+    const tone = v.blocked > 0 ? 'red' : 'yellow'
+
     return (
       <Box flexDirection="row" gap={1}>
-        <Text color="yellow" bold>ToneGuard</Text>
-        <Text color="yellow">{fit(`${verdict}・${subject}${blocked}`, room)}</Text>
+        <Text color={tone} bold>ToneGuard</Text>
+        <Text color={tone}>{fit(`${verdict}・${subject}${blocked}`, room)}</Text>
         <Box flexGrow={1} />
         <Button key="copy-gate-hide" label="✕" dimColor onPress={hide} />
       </Box>
