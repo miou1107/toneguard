@@ -250,3 +250,23 @@ test('after the answer the band stays for a while, then collapses by itself', as
   expect(await ui.find({ type: 'Text', text: /ENGINE-OWN/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('中文全部被擋下來就不跳提示，真的寫出去才跳', async ($, on) => {
+  const toasts: string[] = []
+  ;(on as any)('ui.toast', (_: any, e: any) => { toasts.push(JSON.stringify(e)); return { value: undefined } })
+  ;(on as any)('clock.now', () => ({ value: T0 }))
+  ;(on as any)('turn.start', (_: any, e: any) => ({ turnId: e.turnId }))
+  ;(on as any)('turn.complete', (_: any, e: any) => ({ text: e.text ?? '' }))
+  ;(on as any)('tool.call', { tool: 'Bash' }, () => ({ deny: '這條指令要把中文寫進 a.md，這一輪還沒跑過文案 skill。' }))
+  ;(on as any)('tool.call', () => ({ result: {}, text: 'ok' }))
+  const done = { text: 'done', reason: 'answer', answer: 'done', durationMs: 1, isAborted: false }
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Bash', command: "printf '這是一句測試用的中文。\\n' > /tmp/tg-test/a.md" })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/src/a.ts', content: 'const b = 1' })
+  await ($ as any).turn.complete({ ...done, turnId: 't1' })
+  expect(toasts.length).toBe(0)
+  await ($ as any).turn.start({ text: 'b', turnId: 't2' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/a.md', content: '旅客會看到今天的行程' })
+  await ($ as any).turn.complete({ ...done, turnId: 't2' })
+  expect(toasts.length).toBe(1)
+})

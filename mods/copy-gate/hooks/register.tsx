@@ -8,7 +8,7 @@ import type { Timer } from 'claude-code'
 // 擋的動作本來就由 ~/.claude/hooks/copy_gate_on_edit.py 做；這裡只負責讓 Vin 看得到。
 
 const EMPTY: CopyGateView = {
-  turnStartedAt: 0, outputs: [], draftAt: 0, polishAt: 0, blocked: 0, isHidden: false,
+  turnStartedAt: 0, outputs: [], draftAt: 0, polishAt: 0, blocked: 0, passed: 0, isHidden: false,
 }
 const view = atom({ plugin: 'copy-gate', key: 'view' } as const, EMPTY)
 
@@ -101,11 +101,12 @@ const addOutput = async ($: any, kind: CopyGateOutput['kind'], label: string) =>
 const HIDE_AFTER_MS = 20_000
 let hideTimer: Timer | undefined
 
-// 底下的擋門（python hook）因為文案 skill 沒跑而擋下，就記一次
+// 底下的擋門（python hook）因為文案 skill 沒跑而擋下，就記一次；沒被擋就是中文真的寫出去了
 const countBlocked = async ($: any, ran: any) => {
   const text = String(ran?.deny ?? ran?.text ?? '')
   const isCopyDeny = (ran?.deny !== undefined || ran?.isError === true) && COPY_DENY.test(text)
   if (isCopyDeny) await update($, view, v => ({ ...v, blocked: v.blocked + 1 }))
+  else await update($, view, v => ({ ...v, passed: v.passed + 1 }))
 }
 
 export const register: Register = on => {
@@ -113,7 +114,7 @@ export const register: Register = on => {
     hideTimer?.cancel()
     hideTimer = undefined
     const now = await $.clock.now()
-    await update($, view, v => ({ ...v, turnStartedAt: now, outputs: [], blocked: 0, isHidden: false }))
+    await update($, view, v => ({ ...v, turnStartedAt: now, outputs: [], blocked: 0, passed: 0, isHidden: false }))
     return next(e)
   })
 
@@ -127,16 +128,18 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
-    if (e.agentId === undefined && userVisibleCjk(e.file_path, e.new_string)) await addOutput($, 'file', base(e.file_path))
+    const isCopy = e.agentId === undefined && userVisibleCjk(e.file_path, e.new_string)
+    if (isCopy) await addOutput($, 'file', base(e.file_path))
     const ran = await next(e)
-    await countBlocked($, ran)
+    if (isCopy) await countBlocked($, ran)
     return ran
   })
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
-    if (e.agentId === undefined && userVisibleCjk(e.file_path, e.content)) await addOutput($, 'file', base(e.file_path))
+    const isCopy = e.agentId === undefined && userVisibleCjk(e.file_path, e.content)
+    if (isCopy) await addOutput($, 'file', base(e.file_path))
     const ran = await next(e)
-    await countBlocked($, ran)
+    if (isCopy) await countBlocked($, ran)
     return ran
   })
 
@@ -155,7 +158,8 @@ export const register: Register = on => {
     if (e.agentId !== undefined) return next(e)
     const v = await read($, view)
     const ranThisTurn = (t: number) => t >= v.turnStartedAt
-    if (v.outputs.length > 0 && !(ranThisTurn(v.draftAt) && ranThisTurn(v.polishAt))) {
+    // 全部都被擋下來的話，中文根本沒寫出去，紅色那一行已經講了，不用再跳一次
+    if (v.passed > 0 && !(ranThisTurn(v.draftAt) && ranThisTurn(v.polishAt))) {
       $.ui.toast('剛寫的中文還沒過文案 skill', { timeoutMs: 8000 })
     }
     if (v.outputs.length > 0) {
