@@ -32,6 +32,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import threading
@@ -44,6 +45,7 @@ PAIRS = HERE / "pairs.jsonl"
 CARD = HERE / "judge-score.json"
 CACHE = HERE / "judge-exam-cache.json"
 RUBRIC = HERE / "judge-rubric.txt"
+PAIR_RUBRIC = HERE / "judge-rubric-pair.txt"
 JUDGE = pathlib.Path.home() / ".claude" / "hooks" / "copy_judge.py"
 
 PASS_RECALL = 70      # 抓到率至少
@@ -251,12 +253,123 @@ def exam_pairs(workers):
     print(f"只用「比較長的那一版是爛的」：{lb}/{len(pairs)} 對")
 
 
+def judge_module():
+    """借掃詞那一側已經寫好的送問路徑，不要在這裡再寫一份。
+    它身上有 agy 跟 claude 兩個出口，也有擋遞迴那一道。"""
+    spec = importlib.util.spec_from_file_location("copy_judge_for_compare", JUDGE)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def ask_harder(m, rubric, question, a, b, tries=3):
+    """問一次「A 跟 B 哪一份比較難讀」，回 ('A' 或 'B', 一句原因)。問不到回 (None, '')。"""
+    prompt = (rubric.replace("{QUESTION}", (question or "（沒有指定）")[:600])
+              .replace("{A}", a[:6000]).replace("{B}", b[:6000]))
+    for i in range(tries):
+        try:
+            r = m.ask_model(prompt)
+        except Exception:
+            time.sleep(3 * (i + 1))
+            continue
+        hit = re.search(r"\{.*\}", r.stdout, re.S)
+        if hit:
+            try:
+                d = json.loads(hit.group(0))
+            except Exception:
+                d = {}
+            h = str(d.get("harder", "")).strip().strip('"').upper()
+            if h in ("A", "B"):
+                return h, str(d.get("why", ""))[:100]
+        time.sleep(3 * (i + 1))
+    return None, ""
+
+
+def exam_compare(pairs, workers, name="配對比較題"):
+    """換問法的考試：兩份稿一起送進去，問它哪一份比較難讀，不准打分數也不准說一樣。
+
+    每一對要問兩次，爛的那一份先當 A、再當 B。只問一次的話，
+    一個「永遠挑 A」的判官會拿到滿分或零分，而那不是在讀內容，是在看位置。
+    兩次都挑中爛的才算對；兩次挑同一個位置，就是它在看位置。"""
+    rubric = PAIR_RUBRIC.read_text(encoding="utf-8")
+    m = judge_module()
+    model = m.model_name() if hasattr(m, "model_name") else m.MODEL
+    sig = hashlib.sha1((rubric + "\x00" + model).encode("utf-8")).hexdigest()[:12]
+    cache = load_cache()
+    print(f"比較用的規範 {hashlib.sha1(rubric.encode()).hexdigest()[:12]}、"
+          f"判官 {model}，{len(pairs)} 對，一對問兩次\n", flush=True)
+
+    jobs = []
+    for i, pr in enumerate(pairs):
+        for order in ("壞的當 A", "壞的當 B"):
+            a, b = ((pr["bad"], pr["good"]) if order == "壞的當 A"
+                    else (pr["good"], pr["bad"]))
+            jobs.append((i, order, a, b))
+
+    done = [0]
+
+    def one(job):
+        i, order, a, b = job
+        k = "cmp:" + hashlib.sha1(
+            (sig + "\x00" + order + "\x00" + a + "\x00" + b).encode("utf-8")
+        ).hexdigest()[:20]
+        if cache.get(k) is None:
+            h, why = ask_harder(m, rubric, pairs[i].get("question", ""), a, b)
+            if h is not None:
+                cache[k] = h
+        with LOCK:
+            done[0] += 1
+            c = done[0]
+        if c % 4 == 0:
+            save_cache(cache)
+            print(f"    {name} {c}/{len(jobs)}", flush=True)
+        return (i, order, cache.get(k))
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        got = list(ex.map(one, jobs))
+    save_cache(cache)
+    ans = {(i, o): h for i, o, h in got}
+
+    print()
+    both = wrong = pos = skip = 0
+    for i, pr in enumerate(pairs):
+        h1, h2 = ans.get((i, "壞的當 A")), ans.get((i, "壞的當 B"))
+        if h1 is None or h2 is None:
+            skip += 1
+            print(f"  問不到，跳過　｜ {pr['question'].replace(chr(10), ' ')[:40]}")
+            continue
+        # 壞的當 A 的時候要答 A，壞的當 B 的時候要答 B
+        ok1, ok2 = h1 == "A", h2 == "B"
+        if ok1 and ok2:
+            mark, both = "兩次都挑中爛的", both + 1
+        elif not ok1 and not ok2:
+            mark, wrong = "兩次都挑錯", wrong + 1
+        else:
+            mark, pos = f"它在看位置（兩次都說 {h1}）", pos + 1
+        print(f"  {mark}　｜ {pr['question'].replace(chr(10), ' ')[:40]}")
+
+    n = both + wrong
+    print(f"\n{len(pairs)} 對裡：兩次都挑中爛的 {both} 對、兩次都挑錯 {wrong} 對、"
+          f"看位置不看內容 {pos} 對" + (f"、問不到 {skip} 對" if skip else ""))
+    if n:
+        pv = sum(math.comb(n, k) for k in range(both, n + 1)) / 2 ** n
+        print(f"不看位置的 {n} 對裡挑對 {both} 對，瞎猜也能這麼好的機率 {pv*100:.0f}%")
+    else:
+        print("沒有一對是靠內容判的，這個問法也不行。")
+    lb = sum(1 for pr in pairs if len(pr["bad"]) > len(pr["good"]))
+    print(f"只用「比較長的那一份是爛的」：{lb}/{len(pairs)} 對")
+    return both, wrong, pos, skip
+
+
 def main():
     argv = sys.argv[1:]
     n = int(argv[argv.index("--n") + 1]) if "--n" in argv else 60
     workers = int(argv[argv.index("--workers") + 1]) if "--workers" in argv else 8
     if "--pairs" in argv:
         exam_pairs(workers)
+        return
+    if "--compare" in argv:
+        exam_compare(read_jsonl(PAIRS, "python3 copy-samples/build_pairs.py"), workers)
         return
     rows = read_jsonl(GOLD, "python3 copy-samples/build_gold.py")
 

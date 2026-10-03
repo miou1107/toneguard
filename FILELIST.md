@@ -27,6 +27,7 @@
 | `copy-patterns.json` | 那些詞歸納出來的六種寫法，用來擋還沒被他退過的第 41 個詞 |
 | `agent-doc-rules.json` | 寫給 agent 讀的文件那一套：條件不明確、同一個東西前後兩個名字、數字沒標明是參考值還是目標 |
 | `judge-rubric.txt` | 語意判官的評分規範，externalized 出來才能改版重考 |
+| `judge-rubric-pair.txt` | 另一種問法：兩份稿一起送進去，問哪一份比較難讀，不准打分數。打分數那種問法九對只分對兩對，這一種分對八對 |
 | `judge-score.json` | 最近一次考試的成績。`pass` 這個欄位決定語意判官准不准擋人，也決定門檻採不採用。只有 `judge_exam.py` 可以寫這一份 |
 
 工具程式：
@@ -39,7 +40,7 @@
 | `mine_candidates.py` | 從 AI 自己的輸出裡挖「我常用、他從來沒用過」的詞。兩份語料都要比，只比一份的話候選有一半是假的 |
 | `build_gold.py` | 把他抱怨過的那幾則整理成考題，分成抱怨過、沒說話、親口說好三群 |
 | `build_pairs.py` | 挖配對考題：他說聽不懂、我當場重寫、他說好，連在一起的三則 |
-| `judge_exam.py` | 考語意判官，順便決定門檻訂幾分。`--pairs` 跑配對考題 |
+| `judge_exam.py` | 考語意判官，順便決定門檻訂幾分。`--pairs` 跑配對考題，`--compare` 改用「兩份一起比」的問法，一對問兩次把位置換過來 |
 | `tune_judge.py` | 自動改評分規範再重考。它不准寫成績單，結果寫進 `judge-tuning-result.json` |
 | `measure.py` / `eval.py` / `build_eval_set.py` | 量涵蓋率與抱怨比例 |
 
