@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""學習迴圈與考試量尺的回歸測試，一次模型呼叫都不花。
+
+這一份釘住 2026-10-03 那一輪補的三件事：
+
+1. 他 9/24 改掉的那幾個口語小標，掛勾真的攔得住，而且建議換上去的那一句不會反過來被攔。
+2. 他說「寫得好」的那幾種說法抓得到，而「這樣比較清楚嗎」這種沒有問號的是非題不算誇獎。
+   他親口說好的樣本只有十段，混進一句問句，誤判率的分母就被污染了。
+3. 考試送題目的時候一定要給 `--min 0`。不給的話語意判官中文不到 120 字就直接結束、
+   一個字都不印，考題裡最短的那幾段會無聲消失，而「只算字數」那條基準線是拿全部的
+   題目算的 —— 一邊濾過長度、一邊沒濾，比出來的高下是假的。
+
+要攔的那幾個字從詞表讀出來，測試檔裡不寫死：寫死的話以後改這個檔會被掛勾自己擋住，
+而且詞表更新了測試也跟不上。
+
+跑法：python3 tests/test_learning_loop.py
+"""
+import importlib.util
+import json
+import pathlib
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+GUARD = ROOT / "hooks" / "coined_word_guard.py"
+TERMS = json.loads((ROOT / "copy-samples" / "coined-terms.json").read_text("utf-8"))
+
+fails = []
+
+
+def load(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def edit_rc(text):
+    """把一段字當成要寫進檔案的內容送給掛勾，回它的退出碼。2 是擋下來。"""
+    payload = {"hook_event_name": "PreToolUse", "tool_name": "Write",
+               "tool_input": {"file_path": str(ROOT / "scratchpad" / "x.md"),
+                              "content": text}}
+    r = subprocess.run([sys.executable, str(GUARD)], input=json.dumps(payload),
+                       capture_output=True, text=True, timeout=30)
+    return r.returncode
+
+
+def check(name, got, want):
+    ok = got == want
+    print(("PASS " if ok else "FAIL ") + f"{name}: got {got!r}, want {want!r}")
+    if not ok:
+        fails.append(name)
+
+
+def test_headings():
+    """口語小標那幾條：先送一句會被擋的，確認它真的擋得住，再送建議的寫法。"""
+    picked = [t for t in TERMS["terms"]
+              if t.get("level") == "block" and "口語" in (t.get("note") or "")]
+    check("詞表裡有口語小標那幾條", len(picked) >= 7, True)
+    for t in picked:
+        check(f"攔得住：{t['note']}（第 {picked.index(t) + 1} 條）",
+              edit_rc(f"# 文件\n\n{t['bad']}\n\n這一段是內容。"), 2)
+    # 建議換上去的那一句自己被擋，等於這一條沒有出路
+    first = picked[0]["good"].split("；")[0].split("（")[0].strip()
+    check("建議換上去的寫法不會被擋", edit_rc(f"# 文件\n\n{first}\n\n這一段是內容。"), 0)
+
+
+def test_praise():
+    m = load(ROOT / "hooks" / "complaint_learn.py", "complaint_learn_test")
+    for s in ("這樣就清楚了", "這樣比較清楚", "文案 ok", "寫得很清楚", "好多了"):
+        check(f"算他在說好：{s}", m.is_praise(s)[0], True)
+    for s in ("這樣比較清楚嗎", "這樣有比較清楚嗎", "文案 ok 嗎", "這樣寫對不對"):
+        check(f"他在問，不算說好：{s}", m.is_praise(s)[0], False)
+
+
+def test_exam_sends_min_zero():
+    """考試一定要用 --min 0 問，不然短的題目會被無聲丟掉。"""
+    ex = load(ROOT / "copy-samples" / "judge_exam.py", "judge_exam_test")
+    seen = {}
+
+    class Fake:
+        stdout = "8\n"
+
+    def fake_run(argv, **kw):
+        seen["argv"] = argv
+        return Fake()
+
+    ex.subprocess.run = fake_run
+    got = ex.score({"text": "短的一段", "question": "他問的那一句"})
+    check("問得到分數", got, 8)
+    argv = seen.get("argv", [])
+    check("送了 --min", "--min" in argv, True)
+    check("--min 給的是 0", argv[argv.index("--min") + 1] if "--min" in argv else None, "0")
+
+
+def test_scores_carry_their_own_text():
+    """run() 要把原文跟分數綁在一起回傳，基準線才拿得到同一批題目。"""
+    ex = load(ROOT / "copy-samples" / "judge_exam.py", "judge_exam_test2")
+    rows = [{"text": "第一段", "question": "問句"}, {"text": "第二段", "question": "問句"}]
+    cache = {ex.key_of("規範", r): 7 + i for i, r in enumerate(rows)}
+    got = ex.run("測試", rows, "規範", cache, 1)
+    check("回傳原文加分數", got, [(rows[0], 7), (rows[1], 8)])
+
+
+def test_key_follows_model_and_examples():
+    """換了模型或換了範例，同一題的鍵要跟著變，不然兩種條件的分數會混在一張成績單上。"""
+    ex = load(ROOT / "copy-samples" / "judge_exam.py", "judge_exam_test3")
+    row = {"text": "一段文字", "question": "問句"}
+    a = ex.key_of("規範\x00模型甲\x00範例1", row)
+    b = ex.key_of("規範\x00模型乙\x00範例1", row)
+    c = ex.key_of("規範\x00模型甲\x00範例2", row)
+    check("換模型，鍵就不一樣", a != b, True)
+    check("換範例，鍵就不一樣", a != c, True)
+
+
+def test_stats():
+    ex = load(ROOT / "copy-samples" / "judge_exam.py", "judge_exam_test4")
+    check("一題都沒有的時候不會當掉", ex.wilson(0, 0), (0.0, 0.0, 0.0))
+    p, lo, hi = ex.wilson(7, 7)
+    check("七題全中，點估計是 100%", round(p), 100)
+    check("七題全中，下界還是遠低於 100", lo < 70, True)
+    p, lo, hi = ex.wilson(1, 7)
+    check("七題中一題，點估計 14%", round(p), 14)
+    check("七題中一題，上界超過 40%", hi > 40, True)
+    # 配對題的符號檢定：九對裡分對七對，瞎猜也能這麼好的機率是 9%
+    import math
+    n, win = 9, 7
+    pv = sum(math.comb(n, k) for k in range(win, n + 1)) / 2 ** n
+    check("九對分對七對的 p 值是 9%", round(pv * 100), 9)
+
+
+def test_baseline_uses_the_rows_it_is_given():
+    ex = load(ROOT / "copy-samples" / "judge_exam.py", "judge_exam_test5")
+    bad = [{"text": "長" * 600}, {"text": "長" * 400}]
+    unk = [{"text": "短" * 100}, {"text": "短" * 120}]
+    th, lift, rc, ng, fp = ex.length_baseline(bad, unk, [])
+    check("只算字數也分得開這兩群", (rc, ng), (100.0, 0.0))
+    check("他親口說好的那一群是空的也不會除以零", fp, 0.0)
+
+
+def main():
+    test_headings()
+    test_praise()
+    test_exam_sends_min_zero()
+    test_scores_carry_their_own_text()
+    test_key_follows_model_and_examples()
+    test_stats()
+    test_baseline_uses_the_rows_it_is_given()
+    print()
+    if fails:
+        print(f"{len(fails)} 條沒過：" + "、".join(fails))
+        return 1
+    print("全部過了")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

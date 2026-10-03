@@ -87,13 +87,17 @@ def main() -> int:
 
     # 上一則回話被文案掃描抓到的寫法。以前是當場退回、AI 重貼整則，
     # Vin 會看到兩份；現在改成這裡交給 AI，從這一則開始照著改。
-    pending = Path.home() / ".claude" / "state" / "copy-gate" / "pending-reply-notice.txt"
+    # 只讀這個對話自己那一張，不然兩個對話同時開著的時候會互相吃掉。
     notice = ""
-    try:
-        notice = pending.read_text(encoding="utf-8").strip()
-        pending.unlink()
-    except OSError:
-        pass
+    sid = re.sub(r"[^A-Za-z0-9_-]", "", payload.get("session_id") or "")
+    if sid:
+        pending = (Path.home() / ".claude" / "state" / "copy-gate"
+                   / "pending-reply" / f"{sid}.txt")
+        try:
+            notice = pending.read_text(encoding="utf-8").strip()
+            pending.unlink()
+        except OSError:
+            pass
     if notice:
         body = ("<previous-reply-copy-scan>\n上一則回話有 Vin 退過的寫法。"
                 "不用重貼上一則，也不用跟他道歉，這一則開始照著改：\n"

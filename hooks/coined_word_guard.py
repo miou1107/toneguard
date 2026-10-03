@@ -86,8 +86,18 @@ PATTERNS = SAMPLES / "copy-patterns.json"
 AGENT_RULES = SAMPLES / "agent-doc-rules.json"
 CORPUS = SAMPLES / "vin-corpus.txt"
 BLOCKLOG = HOME / ".claude" / "state" / "copy-gate" / "blocks.jsonl"
-PENDING_REPLY_NOTICE = HOME / ".claude" / "state" / "copy-gate" / "pending-reply-notice.txt"
+# 一個對話一個檔。原本是全部對話共用一個檔名，兩個對話同時開著的時候，
+# 誰的下一輪先跑，誰就把那張便條吃掉 —— 寫出爛句子的那一邊從此不會看到提醒，
+# 另一邊則被叫去改一則它沒寫過的回話。隔天開另一個對話也還會撈到昨天留下的那張。
+PENDING_DIR = HOME / ".claude" / "state" / "copy-gate" / "pending-reply"
 REPLY_LABEL = "（這一則回話）"
+SESSION = [""]
+
+
+def notice_file(sid):
+    """對話代號只留英數與減號，其餘換掉，免得它變成路徑的一部分。"""
+    sid = re.sub(r"[^A-Za-z0-9_-]", "", sid or "")
+    return PENDING_DIR / f"{sid}.txt" if sid else None
 
 ZH_RUN = re.compile(r"[一-鿿]{2,}")
 # 一次最多掃這麼多字。2026-09-15 量到的速度是每一千字 0.32 秒，
@@ -412,6 +422,7 @@ def from_hook():
     if payload.get("hook_event_name") == "Stop":
         # 回話也是文案，這個出口本來沒有門。已經退回過一次就只報擋下來的，
         # 不然要引用一個退過的詞的時候會被連擋到上限。
+        SESSION[0] = payload.get("session_id") or ""
         return (last_reply(payload.get("transcript_path", "")),
                 REPLY_LABEL, bool(payload.get("stop_hook_active")))
     tool = payload.get("tool_name") or ""
@@ -545,18 +556,18 @@ def main():
         # 幾乎一樣的回話（2026-10-02 他說「把你重複講話的這個功能關掉」）。
         # 改成記下來，下一輪 copy-voice-inject.py 會把它交給 AI。
         log_block(path, scan(text)[0])
-        try:
-            PENDING_REPLY_NOTICE.parent.mkdir(parents=True, exist_ok=True)
-            PENDING_REPLY_NOTICE.write_text(msg, encoding="utf-8")
-        except OSError:
-            pass
+        f = notice_file(SESSION[0])
+        if f:
+            try:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(msg, encoding="utf-8")
+            except OSError:
+                pass
         sys.exit(0)
     if blocked:
         log_block(path, scan(text)[0])
-        # 回話這條路已經退回過一次（terse ＝ 這一輪的 Stop 是上一次退回帶出來的）。
-        # 再退一次只會連環跳：要提到那個被退的詞，就又被自己擋下。第二次以後
-        # 只在畫面上提醒、不再擋，這一輪才收得了尾。改檔案、開單、commit 那幾條
-        # 一律 terse=False，不受影響。
+        # 走到這裡的只剩改檔案、開單、commit、交辦那幾條，它們一律 terse=False，照樣擋。
+        # 回話那一條在上面就離開了，從 2026-10-02 起不再退回，改成留一張便條給下一輪。
         if not terse:
             print(msg, file=sys.stderr)
             sys.exit(2)

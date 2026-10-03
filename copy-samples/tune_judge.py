@@ -23,7 +23,11 @@ HERE = pathlib.Path(__file__).resolve().parent
 GOLD = HERE / "gold.jsonl"
 RUBRIC = HERE / "judge-rubric.txt"
 HIST = HERE / "judge-tuning.jsonl"
-SCORE = HERE / "judge-score.json"
+# 這支不准寫 judge-score.json。那一份的 pass 決定語意判官准不准擋人，
+# 而這支量的是舊的兩群考試（只有他抱怨過的、他親口說好的），沒有「他沒說話的」那一群，
+# 也沒有「只算字數」那條基準線 —— 2026-10-03 量到那種比法會把長度當成文筆。
+# 讓它寫回去，等於留一個後門把考不過的判官放出來擋人。
+TUNED = HERE / "judge-tuning-result.json"
 JUDGE = pathlib.Path.home() / ".claude" / "hooks" / "copy_judge.py"
 
 
@@ -99,10 +103,20 @@ def main():
 
     rows = [json.loads(l) for l in GOLD.read_text(encoding="utf-8").splitlines() if l.strip()]
     rnd = random.Random(29)
-    bad = rnd.sample([r for r in rows if r["label"] == "bad"], ntr + nte)
-    good = rnd.sample([r for r in rows if r["label"] == "good"], ntr + nte)
-    train = bad[:ntr] + good[:ntr]
-    test = bad[ntr:] + good[ntr:]
+
+    def take(label):
+        # 他親口說好的只有十段，要 14 段就當場停在 ValueError。
+        # 要幾段就給幾段，不夠的時候講出來還剩幾段。
+        pool = [r for r in rows if r["label"] == label]
+        if len(pool) < ntr + nte:
+            print(f"「{label}」只有 {len(pool)} 段，要 {ntr + nte} 段。"
+                  f"練習題與考試題各拿一半。", flush=True)
+        return rnd.sample(pool, min(len(pool), ntr + nte))
+
+    bad, good = take("bad"), take("good")
+    cut = min(ntr, len(bad) // 2, len(good) // 2)
+    train = bad[:cut] + good[:cut]
+    test = bad[cut:] + good[cut:]
 
     cur = RUBRIC.read_text(encoding="utf-8")
     best, best_score = cur, None
@@ -131,11 +145,10 @@ def main():
     shutil.copy(RUBRIC, HERE / "judge-rubric.best.txt")
     rc, fpr, sc, _, _ = run(test)
     print(f"\n考試題（從頭到尾沒看過）：抓到 {rc:.0f}%、誤判 {fpr:.0f}%")
-    ok = rc >= 70 and fpr <= 15
-    print("語意判官" + ("考過了，可以擋人。" if ok else "還是考不過，維持只提醒。"))
-    SCORE.write_text(json.dumps({"n": nte, "recall": rc, "fp": fpr, "pass": ok,
-                                 "tuned": True}, ensure_ascii=False, indent=1),
-                     encoding="utf-8")
+    TUNED.write_text(json.dumps({"n": len(test), "recall": rc, "fp": fpr, "tuned": True},
+                                ensure_ascii=False, indent=1), encoding="utf-8")
+    print("這一輪只動評分規範，沒有改成績單。"
+          "准不准擋人要跑 judge_exam.py 才算：python3 copy-samples/judge_exam.py --n 60")
 
 
 if __name__ == "__main__":

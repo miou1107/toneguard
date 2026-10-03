@@ -146,6 +146,20 @@ def note_praise(payload, msg):
         pass
 
 
+def is_praise(msg):
+    """他這一句算不算在說「寫得好」。回傳判斷結果，以及拿掉引號之後的那句話。
+
+    引號裡的字要先拿掉：他講「那個詞」跟他用那個詞罵我是兩件事。
+    句尾是是非題的話一律不算：「這樣比較清楚嗎」是他在問，不是在說好，
+    而中文的是非題常常沒有問號，只靠句尾那個問號判會把他的問句存成誇獎
+    （2026-10-03 把誇獎規則加寬的時候踩到，他說好的樣本本來就只有十幾段，
+    混進一句問句就等於誤判率的分母被污染）。"""
+    bare = QUOTED.sub("　", msg)
+    if YESNO.search(bare.strip()):
+        return False, bare
+    return bool(PRAISE.search(bare)), bare
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -159,13 +173,7 @@ def main():
     if NOISE.search(msg) or len(msg) > 120:
         return
 
-    # 他講「那個詞」跟他「用那個詞罵我」是兩件事。把引號裡的字拿掉再判一次。
-    bare = QUOTED.sub("　", msg)
-    praised = bool(PRAISE.search(bare))
-    # 「這樣比較清楚嗎」是他在問，不是在說好。中文的是非題常常沒有問號，
-    # 只靠句尾那個問號判會把他的問句存成誇獎（2026-10-03 加寬誇獎規則時踩到）。
-    if YESNO.search(bare.strip()):
-        praised = False
+    praised, bare = is_praise(msg)
 
     # 「以後我跟你說聽不懂的時候，你會怎麼處理？」——他在問制度，不是在退我的稿。
     if ASKING.search(bare) and bare.strip().endswith(("？", "?")):

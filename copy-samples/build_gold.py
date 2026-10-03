@@ -135,6 +135,35 @@ def main():
                              "complaint": "", "source": "他親口說好的"})
                 n_ok += 1
 
+    # 同一段文字只准有一個標籤，而且每一群裡只留一份。
+    # 2026-10-03 量到三種髒掉的樣子：有一段同時躺在「他抱怨過的」與「他親口說好的」
+    # 兩群裡（兩邊的問句只差一個空格），他親口說好的 7 段同時被算進「他沒說話的」那一群，
+    # 抱怨那一群自己重複 7 段。誤打率的分母只有 7 段，一段就佔 14%，
+    # 所以一段標錯就足以決定這張成績單過不過。
+    label_of = {}
+    for r in rows:
+        label_of.setdefault(r["text"], set()).add(r["label"])
+    # 同一段他又說聽不懂又說寫得好，分不出哪一次才算，兩群都不要
+    conflict = {t for t, ls in label_of.items() if {"bad", "good"} <= ls}
+    kept, n_dup, n_leak, seen_pair = [], 0, 0, set()
+    for r in rows:
+        t, lb = r["text"], r["label"]
+        if t in conflict:
+            continue
+        # 他抱怨過、或他親口說好的那一段，不可以同時算成「他沒說話的」
+        if lb == "unknown" and ({"bad", "good"} & label_of[t]):
+            n_leak += 1
+            continue
+        if (t, lb) in seen_pair:
+            n_dup += 1
+            continue
+        seen_pair.add((t, lb))
+        kept.append(r)
+    rows = kept
+    if conflict or n_dup or n_leak:
+        print(f"清掉重疊的：標籤互相矛盾 {len(conflict)} 段（兩群都不留）、"
+              f"重複 {n_dup} 段、他說過話卻被算成沒說話 {n_leak} 段")
+
     nb = sum(1 for r in rows if r["label"] == "bad")
     ng = sum(1 for r in rows if r["label"] == "good")
     nu = sum(1 for r in rows if r["label"] == "unknown")

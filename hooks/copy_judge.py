@@ -129,8 +129,12 @@ FIX = {"沒回答到重點": "把第一句換成直接的答案",
 
 
 def threshold():
+    """考過了才用成績單上的門檻。考不過那一張是從沒有分辨力的一輪算出來的：
+    2026-10-03 那次算到 1 分，照著用的話每一則一百二十字以上的回話都會印出六條意見。
+    考不過的時候整個不要動現場，退回程式裡這個預設值。"""
     try:
-        v = json.loads(SCORE.read_text(encoding="utf-8")).get("threshold")
+        card = json.loads(SCORE.read_text(encoding="utf-8"))
+        v = card.get("threshold") if card.get("pass") else None
         return int(v) if v else THRESHOLD
     except Exception:
         return THRESHOLD
