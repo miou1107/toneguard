@@ -186,6 +186,28 @@ test('a shell command that writes Chinese into a prose file counts; a grep over 
   await ui.unmount()
 })
 
+test('綠色那一行也會自己收起來，不是只有黃色', async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
+  ;(on as any)('ui.toast', () => ({ value: undefined }))
+  ;(on as any)('turn.start', (_: any, e: any) => ({ turnId: e.turnId }))
+  ;(on as any)('turn.complete', (_: any, e: any) => ({ text: e.text ?? '' }))
+  ;(on as any)('ui.render', { component: 'AbovePrompt' }, ($: any, e: any) => { const { Text } = $.ui.resolve(e); return <Text>ENGINE-OWN</Text> })
+  ;(on as any)('tool.call', () => ({ result: {}, text: 'ok' }))
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Skill', skill: 'vin-toneguard-draft' })
+  await ($ as any).tool.call({ tool: 'Skill', skill: 'vin-toneguard-polish' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/a.md', content: '旅客會看到今天的行程' })
+  await ($ as any).turn.complete({ text: 'done', reason: 'answer', turnId: 't1', answer: 'done', durationMs: 1, isAborted: false })
+  let ui: any = await band($, 'terminal')
+  expect(await ui.find({ type: 'Text', text: /都檢查過了/ })).toBeDefined()
+  await ui.unmount()
+  await clock.advance(21_000)
+  ui = await band($, 'terminal')
+  expect(await ui.find({ type: 'Text', text: /ToneGuard/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /ENGINE-OWN/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('after the answer the band stays for a while, then collapses by itself', async ($, on) => {
   const clock = mock.clock(on, { now: T0 })
   ;(on as any)('ui.toast', () => ({ value: undefined }))
