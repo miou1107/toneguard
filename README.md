@@ -75,6 +75,10 @@ ToneGuard  還沒檢查・draft-zh.md、index.html                  ✕
 而且要在 `~/.claude/settings.json` 的 `env` 裡把那個路徑列進 `CLAUDE_CODE_PLUGIN_DIRS`，
 那一行才會出現。它只負責顯示，真正擋人的是 `hooks/copy_gate_on_edit.py`。
 
+輸入框上面那一行判斷哪幾份是要給人讀的中文，規則是從 `hooks/copy_gate_on_edit.py`
+與 `hooks/coined_word_guard.py` 複製過來的。只改 python 那兩支的話，擋下來的指令會變，
+那一行顯示的顏色卻不會跟著變，所以兩邊要在同一個提交裡一起改。
+
 ### 掃詞掛在哪裡：預設全掃，例外才放行
 
 原本是名單制，程式先問「這個工具在不在我的名單上」，在名單上才掃。
