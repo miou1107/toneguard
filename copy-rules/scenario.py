@@ -12,6 +12,7 @@ scenario.py — 認出這一次在寫哪一種東西，把那一種的要素印�
     python3 scenario.py --list
     cat hook.json | python3 scenario.py        # PreToolUse，只印不擋
 """
+import importlib.util
 import json
 import pathlib
 import re
@@ -34,6 +35,16 @@ PATHS = [
     ("ui-backoffice", r"(admin|backoffice|後台)/.*\.(tsx|jsx|vue|html)$"),
     ("email-external", r"(mail|郵件|信件|email)"),
 ]
+# 這幾種副檔名裡的中文是註解、測試名稱、資料鍵值，沒有讀者坐在它前面。
+# 2026-10-03 量過：認不出情境的紀錄裡，用指令寫進檔案的那 199 筆有一半是 .py 測試檔。
+# 它們照樣要過掃詞那一關，只是沒有「這一份是寫給誰讀的」這個問題要回答。
+CODE_ONLY = re.compile(r"\.(py|rb|go|rs|java|sh|zsh|sql|ya?ml|toml|lock|csv)$"
+                       r"|\.(?:test|spec)\.[jt]sx?$|(?:^|/)e2e/|(?:^|/)tests?/", re.I)
+# 內文要真的存在，才有「這一份寫給誰讀」可以回答。
+# 2026-10-03 量到的反例：`git tag v0.35.171 <sha>` 沒有帶訊息，一個字都沒有要給人讀，
+# 中文全在旁邊那句 echo 裡；它卻一路被當成認不出情境的對外指令記下來 23 次。
+HAS_BODY = re.compile(r"(?:^|\s)(?:-m|-F|-b|-d|-t)\s|--(?:message|body|body-file|title|"
+                      r"description|notes|notes-file)\b")
 # 這些不是檔案，是動作
 TOOLS = [
     # 更版彙整也是走 gh issue，所以要先看內文寫了什麼，再決定是哪一種。
@@ -44,6 +55,12 @@ TOOLS = [
     ("github-issue-new", r"\bgh\s+issue\s+create\b"),
     ("github-issue-reply", r"\bgh\s+(issue|pr)\s+comment\b|\bgh\s+api\b.*comments"),
     ("commit-pr", r"\bgit\s+commit\b|\bgh\s+pr\s+create\b"),
+    # 2026-10-03 從認不出情境的紀錄裡撈出來的：改一張單的標題或內文、改一顆標籤的說明、
+    # 發一版的說明，寫出去的字都會一直掛在單子上給人讀，跟開一張新單是同一種東西。
+    # 原本只認 create 與 comment，所以 `gh issue edit --title` 整行沒有情境可用。
+    ("github-issue-new", r"\bgh\s+(?:issue|pr)\s+edit\b|"
+                         r"\bgh\s+label\s+(?:create|edit)\b|"
+                         r"\bgh\s+release\s+create\b"),
     # 寫進線上試算表或線上文件的工作紀錄（Vin 2026-09-15 指定要補這一種）
     ("worklog-online", r"gspread|sheets\.googleapis\.com|docs\.google\.com|"
                        r"sheets\.google\.com|googleapis\.com/.*spreadsheet"),
@@ -51,6 +68,36 @@ TOOLS = [
 # 有中文、卻認不出是哪一種情境的，要留下來查，不能靜靜放過去。
 # 那份紀錄就是「還有哪幾種情境沒進目錄」的清單。
 UNMATCHED = pathlib.Path.home() / ".claude" / "state" / "copy-gate" / "unmatched.jsonl"
+
+
+def guard():
+    """借掃詞那一支現成的判斷，不要在這裡抄第二份。
+
+    抄一份的下場是兩邊慢慢不一樣，而這一支的工作正是認出同一件事該用哪一套規則；
+    兩邊對「這段字會不會被人讀到」的答案不同，就會出現「一邊擋了、一邊說認不出情境」。"""
+    for p in (HERE.parent / "hooks" / "coined_word_guard.py",
+              pathlib.Path.home() / ".claude" / "hooks" / "coined_word_guard.py"):
+        if not p.exists():
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location("cwg_for_scenario", p)
+            m = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+            return m
+        except Exception:
+            continue
+    return None
+
+
+def write_target(g, cmd):
+    """這一條指令要把字寫進哪個檔案。寫進暫存目錄的回空字串。"""
+    if g is None or not cmd:
+        return ""
+    m = g.WRITEFILE.search(cmd)
+    if not m:
+        return ""
+    t = m.group("f") or m.group("f2") or ""
+    return "" if (not t or g.SCRATCH.search(t)) else t
 
 
 def load():
@@ -116,7 +163,8 @@ def note_unmatched(tool, path, cmd):
     try:
         UNMATCHED.parent.mkdir(parents=True, exist_ok=True)
         with UNMATCHED.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"tool": tool, "path": path, "cmd": cmd[:120]},
+            f.write(json.dumps({"ts": __import__("time").strftime("%Y-%m-%dT%H:%M:%S"),
+                                "tool": tool, "path": path, "cmd": cmd[:400]},
                                ensure_ascii=False) + "\n")
     except Exception:
         pass
@@ -153,6 +201,30 @@ def main():
              (str(ti.get("content", "")) + str(ti.get("new_string", "")) + cmd))
     if not zh:
         return
+
+    # 指令裡有中文，不等於那段中文會被人讀到。2026-10-03 把 2,960 筆認不出情境的
+    # 指令分類過：972 筆是行內腳本自己的字串、426 筆在讀檔、410 筆拿中文去 grep、
+    # 214 筆 echo 給我自己看，合起來 97% 沒有讀者。它們全部記進那份紀錄，
+    # 結果那份紀錄變成 97% 雜訊，沒有人再去裡面找真的漏掉的情境。
+    g = guard()
+    target = ""
+    if cmd and not path:
+        if g is None:
+            return
+        if g.SELFTEST.search(cmd):
+            return
+        target = write_target(g, cmd)
+        if not target and not (g.OUTWARD.search(cmd) and HAS_BODY.search(cmd)):
+            return
+        # 用指令把字寫進檔案，跟用 Edit 改那個檔是同一件事，
+        # 所以情境要照那個檔案的路徑認。原本只看 file_path，而 Bash 沒有這個欄位，
+        # 於是一份寫進 openspec 的規格拿不到「規格文件」那張卡片。
+        path = target
+
+    # 程式檔裡的中文是註解、測試名稱、資料鍵值，沒有讀者要回答「這份寫給誰」
+    if path and CODE_ONLY.search(path):
+        return
+
     sid = match(path, cmd)
     # 回第二張、第三張 issue 的時候也要看得到卡片，所以 key 帶上單號
     key = path or (re.search(r"\b(?:issue|pr)\s+(?:comment\s+)?#?(\d+)", cmd) or [""])
