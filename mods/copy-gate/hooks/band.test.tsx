@@ -43,7 +43,7 @@ test('Chinese written to a prose file without the skills: the band warns, then p
   await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/README.md', content: '# 說明\n旅客掃 QR 之後會看到今天的行程' })
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui: any = await band($, surface)
-    expect(await ui.find({ type: 'Text', text: /^AI 這一輪改了 README\.md 裡的中文，還沒檢查文案，你不用做什麼$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^AI 這一輪改了 README\.md 裡的中文，文法還沒檢查，你不用做什麼$/ })).toBeDefined()
         await ui.unmount()
   }
   now.t = T0 + 60_000
@@ -91,6 +91,32 @@ test('有東西被擋下來是紅色，只是還沒檢查是黃色', async ($, o
   expect(await colour()).toBe('red')
 })
 
+test('紅字先寫文法再寫結果，擋下幾條排在檔名前面，視窗窄的時候切檔名不切它', async ($, on) => {
+  const now = { t: T0 }
+  setup(on, now)
+  ;(on as any)('tool.call', { tool: 'Bash' }, () => ({ deny: '這條指令要把中文寫進 a.md，這一輪還沒跑過文案 skill。' }))
+  ;(on as any)('tool.call', () => ({ result: {}, text: 'ok' }))
+  const shows = async (re: RegExp, cols = 100) => {
+    const ui: any = await narrowBand($, cols)
+    const hit = await ui.find({ type: 'Text', text: re })
+    await ui.unmount()
+    return hit !== undefined
+  }
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Bash', command: "printf '旅客會看到今天的行程\\n' > /w/docs/a.md" })
+  expect(await shows(/^文法還沒檢查・擋下 1 條・a\.md$/)).toBe(true)
+  await ($ as any).tool.call({ tool: 'Skill', skill: 'vin-toneguard-polish' })
+  expect(await shows(/^文法檢查沒跑完，draft 沒跑・擋下 1 條・a\.md$/)).toBe(true)
+  await ($ as any).tool.call({ tool: 'Skill', skill: 'vin-toneguard-draft' })
+  await ($ as any).turn.complete({ text: 'done', reason: 'answer', turnId: 't1' })
+  // 下一輪：兩個 skill 都是上一輪跑的，紅字跟黃字講同一句話
+  now.t = T0 + 300_000
+  await ($ as any).turn.start({ text: 'b', turnId: 't2' })
+  await ($ as any).tool.call({ tool: 'Bash', command: "printf '司機會看到\\n' > /w/docs/a-very-long-file-name-for-the-band.md" })
+  expect(await shows(/^文法還沒重新檢查・擋下 1 條・a-very-long-file-name-for-the-band\.md$/)).toBe(true)
+  expect(await shows(/^文法還沒重新檢查・擋下 1 條・a-very-long.*…$/, 72)).toBe(true)
+})
+
 test('補跑兩個 skill 之後變綠色，擋下幾條還是要留著', async ($, on) => {
   const now = { t: T0 }
   setup(on, now)
@@ -123,7 +149,7 @@ test('a new turn clears the outputs; skills run in the previous turn show as las
   await ui.unmount()
   await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/b.md', content: '司機會看到' })
   ui = await band($, 'terminal')
-  expect(await ui.find({ type: 'Text', text: /^AI 這一輪改了 b\.md 裡的中文，還沒重新檢查文案，你不用做什麼$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^AI 這一輪改了 b\.md 裡的中文，文法還沒重新檢查，你不用做什麼$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /b\.md/ })).toBeDefined()
   await ui.unmount()
 })
@@ -169,10 +195,10 @@ test('a narrow window: the line gets cut, it never wraps', async ($, on) => {
   const ui: any = await narrowBand($, 40)
   const cut: any = await ui.find({ type: 'Text', text: /…/ })
   expect(cut).toBeDefined()
-  // 一行 40 格，扣掉左邊的名字跟右邊那個叉還剩 27 格，印出來的字不准超過
+  // 一行 40 格，扣掉左邊的名字、三個空隙、那個叉跟桌面版按鈕的預留，還剩 23 格，印出來的字不准超過
   const wide = /[\u1100-\u115F\u2E80-\uA4CF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/
   const cells = [...String(cut.text ?? '')].reduce((n: number, c: string) => n + (wide.test(c) ? 2 : 1), 0)
-  expect(cells).toBeLessThanOrEqual(27)
+  expect(cells).toBeLessThanOrEqual(23)
   await ui.unmount()
 })
 
@@ -200,7 +226,7 @@ test('a shell command that writes Chinese into a prose file counts; a grep over 
   await ($ as any).tool.call({ tool: 'Bash', command: "printf '旅客掃 QR 之後會看到今天的行程\\n' > /tmp/copy-gate-demo.md && cat /tmp/copy-gate-demo.md" })
   ui = await band($, 'terminal')
   expect(await ui.find({ type: 'Text', text: /copy-gate-demo\.md/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /還沒檢查/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /文法還沒檢查/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -273,6 +299,7 @@ test('中文全部被擋下來就不跳提示，真的寫出去才跳', async ($
   await ($ as any).turn.complete({ ...done, turnId: 't2' })
   expect(toasts.length).toBe(1)
   expect(JSON.parse(toasts[0]).timeoutMs).toBe(5000)
+  expect(JSON.parse(toasts[0]).text).toBe('剛寫的中文，文法還沒檢查')
 })
 
 test('yellow: one skill never ran means not checked yet; a long subject is cut before the reassurance is', async ($, on) => {
@@ -286,7 +313,8 @@ test('yellow: one skill never ran means not checked yet; a long subject is cut b
   const ui: any = await narrowBand($, 80)
   const line = await ui.find({ type: 'Text', text: /^AI 這一輪改了 / })
   expect(line).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /還沒檢查文案，你不用做什麼$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /文法還沒檢查，你不用做什麼$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /重新/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /…/ })).toBeDefined()
   await ui.unmount()
 })

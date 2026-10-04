@@ -55,8 +55,8 @@ Vin 分不出這一輪是真的沒問題，還是根本沒被檢查到。
 
 ```
 ToneGuard  文法檢查通過・16 個檔、PR 內文（01:12、01:15）
-ToneGuard  polish 沒跑・5 個檔、issue 留言・擋下 2 條          ✕
-ToneGuard  還沒檢查・draft-zh.md、index.html                  ✕
+ToneGuard  文法檢查沒跑完，polish 沒跑・擋下 2 條・5 個檔、issue 留言   ✕
+ToneGuard  文法還沒檢查・draft-zh.md、index.html                     ✕
 ```
 
 三種顏色各代表一件事：
@@ -64,7 +64,7 @@ ToneGuard  還沒檢查・draft-zh.md、index.html                  ✕
 | 顏色 | 代表什麼 | 你要做什麼 |
 |---|---|---|
 | 綠色 | 兩個 skill 都跑過了 | 不用管 |
-| 黃色 | 還沒檢查，或只跑了一個 | 等它跑完 |
+| 黃色 | 文法還沒檢查，或只跑了一個 skill | 等它跑完 |
 | 紅色 | 有指令真的被擋下來，那句話沒有送出去 | 看一下它擋的是哪一句 |
 
 檔名最多列兩個名字，再多就只寫數量 —— 一次碰十幾個檔的時候全部列出來，

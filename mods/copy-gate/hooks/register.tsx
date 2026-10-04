@@ -46,8 +46,9 @@ const fit = (s: string, max: number) => {
   }
   return out + '…'
 }
-// 左邊的名字、兩個空隙、右邊那個收起來的叉
-const CHROME = 'ToneGuard'.length + 4
+// 左邊的名字、三個空隙、右邊那個收起來的叉（plain，只畫一個字）。桌面版畫的是自己的按鈕，寬度不一定是一格，
+// 所以多留四格。Vin 2026-10-04：「這個訊息最多只能一行，超長請用...」
+const CHROME = 'ToneGuard'.length + 8
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const clock = (ms: number) => {
@@ -160,7 +161,7 @@ export const register: Register = on => {
     const ranThisTurn = (t: number) => t >= v.turnStartedAt
     // 全部都被擋下來的話，中文根本沒寫出去，紅色那一行已經講了，不用再跳一次
     if (v.passed > 0 && !(ranThisTurn(v.draftAt) && ranThisTurn(v.polishAt))) {
-      $.ui.toast('剛寫的中文還沒過文案 skill', { timeoutMs: HIDE_AFTER_MS })
+      $.ui.toast('剛寫的中文，文法還沒檢查', { timeoutMs: HIDE_AFTER_MS })
     }
     if (v.outputs.length > 0) {
       hideTimer?.cancel()
@@ -202,35 +203,36 @@ export const register: Register = on => {
           <Text color="green" bold>ToneGuard</Text>
           <Text dimColor>{fit(`文法檢查通過・${subject}${blocked}（${clock(v.draftAt)}、${clock(v.polishAt)}）`, room)}</Text>
           <Box flexGrow={1} />
-          <Button key="copy-gate-hide" label="✕" dimColor onPress={hide} />
+          <Button key="copy-gate-hide" label="✕" plain dimColor onPress={hide} />
         </Box>
       )
     }
 
-    const missing = (name: string, s: string, at: number) =>
-      s === 'stale' ? `${name} 上一輪 ${clock(at)} 跑的` : `${name} 沒跑`
-    const verdict = ds === 'none' && ps === 'none'
-      ? '還沒檢查'
-      : [ds === 'ok' ? '' : missing('draft', ds, v.draftAt),
-         ps === 'ok' ? '' : missing('polish', ps, v.polishAt)].filter(Boolean).join('，')
+    // 紅字、黃字、提醒都照 Vin 2026-10-04 改綠字的寫法：先寫檢查的對象（文法），再寫結果。他說「全部都改」
+    // 兩個都是上一輪跑的，跟黃字講同一句；只有一個完全沒跑過，才點名是哪一個
+    const verdict = ds === 'none' && ps === 'none' ? '文法還沒檢查'
+      : ds !== 'none' && ps !== 'none' ? '文法還沒重新檢查'
+      : `文法檢查沒跑完，${ds === 'none' ? 'draft' : 'polish'} 沒跑`
 
     // 黃色是「我還沒檢查，你再等一下」；紅色是「有一句真的沒送出去，你可能要看一下」
     const tone = v.blocked > 0 ? 'red' : 'yellow'
 
     // 黃色是寫給 Vin 看的：講清楚是 AI 的事，他不用動手。紅色才需要列出哪一個 skill 沒跑
     // 有一個 skill 在時間窗裡完全沒跑過，就不能說「重新」。檔名太長的時候先砍檔名，「你不用做什麼」一定要留著
-    const tail = `裡的中文，${ds === 'none' || ps === 'none' ? '還沒檢查文案' : '還沒重新檢查文案'}，你不用做什麼`
+    const tail = `裡的中文，${ds === 'none' || ps === 'none' ? '文法還沒檢查' : '文法還沒重新檢查'}，你不用做什麼`
     const head = 'AI 這一輪改了 '
+    // 紅字先寫結果跟擋下幾條，檔名放最後；視窗窄的時候先砍檔名
+    const lead = `${verdict}${blocked}・`
     const line = tone === 'yellow'
       ? `${head}${fit(subject, Math.max(4, room - cells(head) - cells(tail) - 1))} ${tail}`
-      : `${verdict}・${subject}${blocked}`
+      : `${lead}${fit(subject, Math.max(4, room - cells(lead)))}`
 
     return (
       <Box flexDirection="row" gap={1}>
         <Text color={tone} bold>ToneGuard</Text>
         <Text color={tone}>{fit(line, room)}</Text>
         <Box flexGrow={1} />
-        <Button key="copy-gate-hide" label="✕" dimColor onPress={hide} />
+        <Button key="copy-gate-hide" label="✕" plain dimColor onPress={hide} />
       </Box>
     )
   })
