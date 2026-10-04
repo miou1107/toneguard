@@ -145,7 +145,8 @@ agent 照字面處理，不會因為用詞不像台灣人就少做一步。它�
 
 | 程式 | 做什麼 |
 |---|---|
-| `hooks/copy_gate_on_edit.py` | 這次編輯有沒有動到引號裡的中文。有的話，這一輪沒跑過文案 skill 就擋住 |
+| `hooks/copy_gate_on_edit.py` | 這次編輯有沒有動到引號裡的中文。有的話，這一輪沒跑過文案 skill 就擋住。要 commit、開單留言、發到 pages 的中文檔，沒有審用詞的回執也擋住 |
+| `hooks/agy_review.py` | 送出前把中文檔交給另一個模型審用詞，審過留回執。回執認內容的 sha256，改過就要再審 |
 | `hooks/copy-voice-inject.py` | 每一輪把 Vin 自己寫過的句子送進 context，同時存下他這一句。AI 回完話再把這一輪寫出去的中文記兩天，他下次貼回來的那幾行就標得出來，不會進語料 |
 | `hooks/complaint_learn.py` | 他一說「聽不懂」，就分析上一輪的問答，分四種原因寫進紀錄 |
 

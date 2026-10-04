@@ -10,6 +10,7 @@
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -102,6 +103,84 @@ def skills_run(session: str) -> set:
     return seen
 
 
+# ---- 送出去之前，有沒有讓另一個模型審過用詞 ----
+# 2026-10-04 補的：規則寫著「兩隻 skill 跑完，再送 agy 審一次用詞」，但沒有程式查，
+# 所以那一步一直漏。現在 git commit、gh 開單留言、發到 pages 這三個出口，
+# 要送出去的中文檔都要有 agy_review.py 留的回執（內容的 sha256 對得上才算）。
+REVIEW_MIN_ZH = 120   # 跟 copy_judge 一樣：短的交給掃詞那一關就夠
+GIT_COMMIT = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?commit\b")
+PAGES_PUBLISH = re.compile(r"pages\.py\s+(?:publish|update)\s+(\S+)")
+GH_BODY_FILE = re.compile(r"\bgh\s+(?:issue|pr|release)\s+\S+.*?(?:--body-file|-F)\s+(\S+)")
+
+
+def prose_files_in(path: Path) -> list:
+    if path.is_dir():
+        return [p for p in path.rglob("*") if p.suffix.lower() in PROSE_EXT]
+    return [path] if path.suffix.lower() in PROSE_EXT else []
+
+
+REVIEW_SKIP = ("/skills/", "/hooks/", "/openspec/", "/.github/")   # 寫給 AI 或工程師讀的，不是給人讀的文案
+
+
+def needs_review(path: Path) -> bool:
+    if not path.is_file() or any(x in str(path) for x in EXEMPT + REVIEW_SKIP):
+        return False
+    if ".test." in path.name or ".spec." in path.name:
+        return False
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:300].lower()
+        if "audience: agent" in head:
+            return False
+    except OSError:
+        return False
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import agy_review
+        return len(CJK.findall(agy_review.visible_text(path))) >= REVIEW_MIN_ZH
+    except Exception:
+        return False
+
+
+def files_sent_out(cmd: str, cwd: str) -> list:
+    """這條指令會把哪些中文檔送出去給別人讀。"""
+    out = []
+    base = Path(cwd or os.getcwd())
+    if GIT_COMMIT.search(cmd):
+        try:
+            names = subprocess.run(["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+                                   cwd=str(base), capture_output=True, text=True, timeout=20).stdout.split("\n")
+            if re.search(r"\s(-a|--all)\b", cmd):
+                names += subprocess.run(["git", "diff", "--name-only", "--diff-filter=ACMR"],
+                                        cwd=str(base), capture_output=True, text=True, timeout=20).stdout.split("\n")
+            root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(base),
+                                  capture_output=True, text=True, timeout=20).stdout.strip() or str(base)
+            out += [Path(root) / n for n in names if n]
+        except Exception:
+            pass
+    for m in PAGES_PUBLISH.finditer(cmd):
+        out += prose_files_in(Path(os.path.expanduser(m.group(1))).resolve())
+    for m in GH_BODY_FILE.finditer(cmd):
+        out.append(Path(os.path.expanduser(m.group(1))).resolve())
+    seen, result = set(), []
+    for p in out:
+        p = p.resolve() if p.exists() else p
+        if p in seen:
+            continue
+        seen.add(p)
+        if needs_review(p):
+            result.append(p)
+    return result
+
+
+def unreviewed(paths: list) -> list:
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import agy_review
+        return [p for p in paths if not agy_review.receipt_ok(p)]
+    except Exception:
+        return []
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -114,6 +193,15 @@ def main() -> int:
     # 2026-09-15 實測：以前這一支只看改檔案，所以 gh issue comment 整條沒人管。
     if tool == "Bash":
         cmd = ti.get("command") or ""
+        # 要送出去的中文檔先查回執，這一關不看指令本身有沒有中文
+        missing = unreviewed(files_sent_out(cmd, payload.get("cwd") or ""))
+        if missing:
+            names = "、".join(p.name for p in missing)
+            print(f"這一步會把 {names} 送出去給別人讀，可是現在的內容還沒審過用詞。\n"
+                  f"先跑：python3 ~/.claude/hooks/agy_review.py {' '.join(str(p) for p in missing)}\n"
+                  "看完它的意見、該改的改好，再送一次。改過的檔要再審一次才算數。",
+                  file=sys.stderr)
+            return 2
         if not CJK.search(cmd):
             return 0
         try:
