@@ -195,11 +195,12 @@ export const register: Register = on => {
     // 擋下幾條兩種顏色都要寫：被擋之後補跑 skill 就變綠色，這個數字正好在那時候消失
     const blocked = v.blocked > 0 ? `・擋下 ${v.blocked} 條` : ''
 
+    // 綠色那一行的字是 Vin 2026-10-04 親手改的：「都檢查過了 --> 文法檢查通過」，一個字都不動
     if (ds === 'ok' && ps === 'ok') {
       return (
         <Box flexDirection="row" gap={1}>
           <Text color="green" bold>ToneGuard</Text>
-          <Text dimColor>{fit(`都檢查過了・${subject}${blocked}（${clock(v.draftAt)}、${clock(v.polishAt)}）`, room)}</Text>
+          <Text dimColor>{fit(`文法檢查通過・${subject}${blocked}（${clock(v.draftAt)}、${clock(v.polishAt)}）`, room)}</Text>
           <Box flexGrow={1} />
           <Button key="copy-gate-hide" label="✕" dimColor onPress={hide} />
         </Box>

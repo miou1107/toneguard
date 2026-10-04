@@ -54,7 +54,7 @@ Vin 分不出這一輪是真的沒問題，還是根本沒被檢查到。
 所以輸入框上面多了一行，判斷寫在最前面，後面才寫這一輪碰到哪幾份中文：
 
 ```
-ToneGuard  都檢查過了・16 個檔、PR 內文（01:12、01:15）
+ToneGuard  文法檢查通過・16 個檔、PR 內文（01:12、01:15）
 ToneGuard  polish 沒跑・5 個檔、issue 留言・擋下 2 條          ✕
 ToneGuard  還沒檢查・draft-zh.md、index.html                  ✕
 ```
