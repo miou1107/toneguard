@@ -97,8 +97,8 @@ const addOutput = async ($: any, kind: CopyGateOutput['kind'], label: string) =>
     : { ...v, outputs: [...v.outputs, { kind, label, at } satisfies CopyGateOutput] })
 }
 
-// 回完話之後那條字留多久再自動收起來
-const HIDE_AFTER_MS = 20_000
+// 回完話之後那條字留多久再自動收起來。Vin 2026-10-04 原話：「類似這樣的訊息跳出來只要5s後自己關掉」
+const HIDE_AFTER_MS = 5_000
 let hideTimer: Timer | undefined
 
 // 底下的擋門（python hook）因為文案 skill 沒跑而擋下，就記一次；沒被擋就是中文真的寫出去了
@@ -160,7 +160,7 @@ export const register: Register = on => {
     const ranThisTurn = (t: number) => t >= v.turnStartedAt
     // 全部都被擋下來的話，中文根本沒寫出去，紅色那一行已經講了，不用再跳一次
     if (v.passed > 0 && !(ranThisTurn(v.draftAt) && ranThisTurn(v.polishAt))) {
-      $.ui.toast('剛寫的中文還沒過文案 skill', { timeoutMs: 8000 })
+      $.ui.toast('剛寫的中文還沒過文案 skill', { timeoutMs: HIDE_AFTER_MS })
     }
     if (v.outputs.length > 0) {
       hideTimer?.cancel()

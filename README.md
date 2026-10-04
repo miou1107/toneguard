@@ -69,7 +69,7 @@ ToneGuard  還沒檢查・draft-zh.md、index.html                  ✕
 
 檔名最多列兩個名字，再多就只寫數量 —— 一次碰十幾個檔的時候全部列出來，
 會排滿五行，而判斷就被擠到最後面。視窗窄到排不下的時候那一行會被截斷，不會換行。
-我回完話 20 秒後它自己收起來，三種顏色都一樣。
+我回完話 5 秒後它自己收起來，三種顏色都一樣。
 
 程式在 `mods/copy-gate/`，安裝之後連到 `~/.claude/mods/copy-gate`，
 而且要在 `~/.claude/settings.json` 的 `env` 裡把那個路徑列進 `CLAUDE_CODE_PLUGIN_DIRS`，
