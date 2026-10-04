@@ -32,7 +32,7 @@ EXEMPT = (
 )
 # 2026-09-15 把 /openspec/ 從這一份拿掉：規格是寫給接手的人與驗收的人讀的，
 # 不是內部檔。實測時它整份放行，一個字都沒被檢查過。
-SKILL_LOG = Path.home() / "Documents" / "skill_logs" / "usage.jsonl"
+SKILL_LOG = Path(os.environ.get("COPY_GATE_SKILL_LOG") or (Path.home() / "Documents" / "skill_logs" / "usage.jsonl"))
 NEEDED = {"vin-toneguard-draft", "vin-toneguard-polish"}
 # 2026-10-03 the two skills were renamed. A session that started before the rename still
 # has the old names loaded, so a run under the old name counts as the new one.
@@ -181,6 +181,33 @@ def unreviewed(paths: list) -> list:
         return []
 
 
+# ---- 新寫一份說明文件之前，四題答了沒 ----
+# 2026-10-04 給同事看的介紹頁連退三版，原因是沒先問讀者是誰就動筆。四題寫在 skill 裡會跟
+# 審用詞那一步一樣被漏掉，所以用 Write 新寫一份中文夠多的 .md／.html 時，先查 doc_brief.py
+# 有沒有那份檔的四題答案（讀者是誰、他每天的痛、讀完要做到哪一步、在哪裡讀）。
+BRIEF_MIN_ZH = 400   # 一篇文章的量；短的通知、README 一列不用答
+
+
+def needs_brief(path: str, text: str) -> bool:
+    p = Path(path)
+    if p.suffix.lower() not in PROSE_EXT:
+        return False
+    if any(x in str(p) for x in EXEMPT + REVIEW_SKIP):
+        return False
+    if "audience: agent" in text[:300].lower():
+        return False
+    return len(CJK.findall(text)) >= BRIEF_MIN_ZH
+
+
+def has_brief(path: str) -> bool:
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import doc_brief
+        return doc_brief.get(path) is not None
+    except Exception:
+        return True
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -240,6 +267,15 @@ def main() -> int:
     text = added_text(ti)
     if not text or not user_visible_cjk(path, text):
         return 0
+
+    if tool == "Write" and needs_brief(path, text) and not has_brief(path):
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import doc_brief
+            print(doc_brief.missing_text(path), file=sys.stderr)
+        except Exception:
+            print(f"{os.path.basename(path)} 是一份新的說明文件，動筆前的四題還沒有答案。", file=sys.stderr)
+        return 2
 
     missing = NEEDED - skills_run(payload.get("session_id", ""))
     if not missing:

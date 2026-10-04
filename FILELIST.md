@@ -1,12 +1,13 @@
 # 檔案清單
 
-## hooks/　六支掛勾
+## hooks/　七支掛勾
 
 | 檔案 | 做什麼 | 掛在哪 |
 |---|---|---|
 | `coined_word_guard.py` | 掃詞：自創量詞、口語動詞、比喻、把機器狀態講成人的動作 | PreToolUse（每一個工具，比對規則是 `.*`）與 Stop |
 | `copy_judge.py` | 讀「他問的那一句」加上回覆，給 0 到 10 分。他說看不懂之後，下一次回話改走另一條路：把他退掉的那一份跟重寫的這一份一起送進去問哪一份比較難讀，重寫的那一份還比較難讀就擋。畫面上的短句先收起來，一輪結束再一起判 | PreToolUse（改檔案、Bash）與 Stop |
 | `copy_gate_on_edit.py` | 這次動到引號裡的中文、或要送留言出去，就要求先跑文案 skill。git commit、gh 開單留言、發到 pages 這三個出口，要送出去的中文檔沒有 `agy_review.py` 的回執就擋 | PreToolUse（改檔案、Bash） |
+| `doc_brief.py` | 寫一份新的說明文件之前，四題的答案（讀者是誰、他每天的痛、讀完要做到哪一步、在哪裡讀）先存在 `~/.claude/state/copy-judge/doc-briefs.jsonl`。`copy_gate_on_edit.py` 看到用 Write 新寫一份中文超過 400 字的 .md／.html，沒有那份檔的四題答案就擋 | 不掛，動筆前自己跑 `set`；`check` 查有沒有 |
 | `agy_review.py` | 把一份中文檔送給另一個模型審用詞，印出意見，審過就依內容的 sha256 留一張回執在 `~/.claude/state/copy-judge/agy-receipts.jsonl`。改過一個字回執就失效 | 不掛，送出前自己跑；`--check` 查回執 |
 | `copy-voice-inject.py` | 每一輪把他自己寫過的句子送進 context，並存下他這一句；AI 寫的字被他貼回來的那幾行標成 `echo_lines` | UserPromptSubmit，另外以 `--log-reply` 掛在 Stop，記下 AI 這一輪寫出去的中文 |
 | `complaint_learn.py` | 他說聽不懂就分析上一輪問答分四種原因，連同是哪一個對話說的一起存進 `complaints.jsonl`，重寫那一關要拿它來比；他說寫得好就把前一則存進 `approved.jsonl` | UserPromptSubmit |
