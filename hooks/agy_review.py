@@ -31,6 +31,7 @@ RECEIPTS = pathlib.Path(os.environ.get("AGY_RECEIPTS") or (HOME / ".claude" / "s
 MODEL = "gemini-3.8-flash-low"
 CLAUDE_MODEL = "claude-sonnet-5-5"
 TIMEOUT = 240
+ARG_LIMIT = 150_000   # bytes; macOS refuses a single argument much bigger than this
 ZH = re.compile(r"[一-鿿]")
 
 PROMPT = """你是熟悉台灣職場溝通的資深資料分析師兼產品經理，母語繁體中文。
@@ -58,7 +59,8 @@ def visible_text(path: pathlib.Path) -> str:
         s = re.sub(r"<[^>]+>", "", s)
         s = html.unescape(s)
     s = re.sub(r"\n\s*\n+", "\n", s)
-    return s.strip()
+    # 一個 NUL 字元就會讓 subprocess 整個丟 ValueError（2026-10-04 OwnMind 的 CHANGELOG 踩到）
+    return s.replace("\x00", "").strip()
 
 
 def receipts():
@@ -97,6 +99,16 @@ def ask(text: str, backend: str) -> subprocess.CompletedProcess:
                                "--restricted", "--strict-mcp-config"],
                               capture_output=True, text=True, timeout=TIMEOUT, env=env)
     exe = os.environ.get("AGY_REVIEW_BIN") or "agy"
+    if len(text.encode("utf-8")) > ARG_LIMIT:
+        # 整份塞進參數會超過系統上限（OwnMind 的 CHANGELOG 一萬多行就撞到）。
+        # 改成寫進暫存檔，請它自己讀；只開那個暫存資料夾給它。
+        import tempfile
+        d = tempfile.mkdtemp(prefix="agy-review-")
+        f = pathlib.Path(d) / "draft.txt"
+        f.write_text(text, encoding="utf-8")
+        return subprocess.run([exe, "--model", MODEL, "--add-dir", d, "--dangerously-skip-permissions",
+                               "-p", PROMPT.replace("=== 原文 ===\n", f"原文在 {f} 這個檔，先把它整份讀完再審。\n")],
+                              capture_output=True, text=True, timeout=TIMEOUT)
     return subprocess.run([exe, "--model", MODEL, "-p", PROMPT + text],
                           capture_output=True, text=True, timeout=TIMEOUT)
 
