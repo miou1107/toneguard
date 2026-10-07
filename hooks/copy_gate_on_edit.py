@@ -122,8 +122,16 @@ def prose_files_in(path: Path) -> list:
 REVIEW_SKIP = ("/skills/", "/hooks/", "/openspec/", "/.github/")   # 寫給 AI 或工程師讀的，不是給人讀的文案
 
 
+# 截圖、PDF、簡報、字型這類二進位檔：用 utf-8 硬讀會讀出一堆像中文的亂碼，送審只會浪費時間。
+# 它們的字來自旁邊的原始檔（json、md、html），審原始檔就夠了。
+BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".pdf", ".pptx", ".docx",
+              ".xlsx", ".zip", ".mp3", ".mp4", ".wav", ".woff", ".woff2", ".ttf", ".otf"}
+
+
 def needs_review(path: Path) -> bool:
     if not path.is_file() or any(x in str(path) for x in EXEMPT + REVIEW_SKIP):
+        return False
+    if path.suffix.lower() in BINARY_EXT:
         return False
     if ".test." in path.name or ".spec." in path.name:
         return False
