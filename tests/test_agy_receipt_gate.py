@@ -123,6 +123,14 @@ body.write_text(ZH_LONG + "改", encoding="utf-8")
 rc = subprocess.run([sys.executable, str(REVIEW), "--check", str(body)], env=env, capture_output=True).returncode
 check("--check reports edited", rc, 2)
 
+# 9. 截圖、PDF、簡報這類二進位檔不送審（2026-10-07 idaytour 說明書：PNG、PDF、PPTX 被當成中文送審，跑了十幾分鐘）
+for name in ("shot.png", "manual.pdf", "manual.pptx"):
+    blob = repo / "docs" / name
+    blob.write_bytes(b"\x89PNG\x00\x01" + ZH_LONG.encode("utf-8") + b"\x00\xff")
+sh(["git", "add", "."], repo)
+rc, err = gate("git com" + "mit -m 'manual binaries'", repo)
+check("binary files are not sent for review", rc, 0)
+
 print()
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS")
 sys.exit(1 if fails else 0)
