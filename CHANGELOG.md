@@ -1,5 +1,13 @@
 # 變更紀錄
 
+## 2026-10-12　3D 模型與貼圖檔不再要求送審
+
+德友 3D 實景開 repo 時，第一次 commit 帶了三個 .glb 模型檔。關卡用 utf-8 硬讀這些檔，
+讀出像中文的亂碼，要求每一份都送審。審稿的模型讀不出內容，也就沒有回答。
+沒有回答就不會留回執，所以這個 commit 每次送出都會被擋下來。
+`needs_review` 現在也略過 .glb、.blend、.fbx、.bin、.hdr、.exr、.ktx2 這幾種 3D 模型與貼圖檔。
+測試 `tests/test_agy_receipt_gate.py` 第 10 項。
+
 ## 2026-10-07　截圖、PDF、簡報這類二進位檔不再要求送審
 
 idaytour 說明書一次 commit 帶了十幾張 PNG 與四份 PDF、PPTX。關卡用 utf-8 硬讀這些檔，
