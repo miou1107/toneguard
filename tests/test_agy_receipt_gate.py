@@ -131,6 +131,15 @@ sh(["git", "add", "."], repo)
 rc, err = gate("git com" + "mit -m 'manual binaries'", repo)
 check("binary files are not sent for review", rc, 0)
 
+# 10. 3D 模型與貼圖也是二進位檔（2026-10-12 德友 3D 實景開 repo：house.glb 被當成中文送審，審稿模型讀不出東西、不留回執，提交一直被擋）
+for name in ("house.glb", "scene.blend", "chair.fbx", "mesh.bin", "env.hdr", "env.exr", "tex.ktx2"):
+    blob = repo / "web" / name
+    blob.parent.mkdir(exist_ok=True)
+    blob.write_bytes(b"glTF\x02\x00\x00\x00" + ZH_LONG.encode("utf-8") + b"\x00\xff")
+sh(["git", "add", "."], repo)
+rc, err = gate("git com" + "mit -m '3d models'", repo)
+check("3d model files are not sent for review", rc, 0)
+
 print()
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS")
 sys.exit(1 if fails else 0)
