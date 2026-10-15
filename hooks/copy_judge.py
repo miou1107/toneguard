@@ -188,15 +188,20 @@ def ask_model(prompt, who=None):
 
     走 claude 的時候一定要帶 --restricted：它會略過使用者與專案的設定檔，
     所以被叫起來的那個 claude 不會再跑一次這支掛勾，問一題變成問無限題。
-    COPY_JUDGE_INNER 是第二道，萬一設定檔的來源以後改了，它照樣會當場結束。"""
+    COPY_JUDGE_INNER 是第二道，萬一設定檔的來源以後改了，它照樣會當場結束。
+    判分只要讀 prompt，用不到任何工具，所以 claude 帶 --tools "" 全部關掉。
+
+    走 agy 的時候關進沙箱（agy_review.run_agy）：要判的稿可能引用外面的網頁或文件，
+    agy -p 執行工具又不會先問人，稿裡夾一句「寫個檔、跑個指令」它就可能照做。"""
     if (who or backend()) == "claude":
         env = dict(os.environ, COPY_JUDGE_INNER="1")
         return subprocess.run(
             ["claude", "-p", prompt, "--model", CLAUDE_MODEL,
-             "--restricted", "--strict-mcp-config"],
+             "--restricted", "--strict-mcp-config", "--tools", ""],
             capture_output=True, text=True, timeout=240, env=env)
-    return subprocess.run(["agy", "--model", MODEL, "-p", prompt],
-                          capture_output=True, text=True, timeout=TIMEOUT)
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import agy_review
+    return agy_review.run_agy(prompt, MODEL, TIMEOUT)
 
 
 
@@ -215,6 +220,8 @@ def judge(text, question=""):  # noqa: C901
         r = ask_model(prompt)
     except FileNotFoundError:
         return 0, [], f"找不到 {backend()}"
+    except OSError as e:          # 不是 Mac，agy 關不進沙箱
+        return 0, [], str(e)
     except subprocess.TimeoutExpired:
         return 0, [], "等太久沒回"
     m = re.search(r"\{.*\}", r.stdout, re.S)
