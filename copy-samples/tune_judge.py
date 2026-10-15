@@ -85,8 +85,10 @@ def ask_agy(cur, misses, falses):
 請直接輸出改好的完整規則，不要說明、不要加開頭結尾。
 規則裡必須保留 {{GOOD}} 與 {{BAD}} 這兩個佔位字串，以及要求只回 JSON 的那一段，
 JSON 的欄位維持 ok 與 issues（quote、which、why、fix）。"""
-    r = subprocess.run(["agy", "-p", prompt], capture_output=True, text=True,
-                       timeout=300)
+    # 考題裡是 AI 寫過的稿，agy 一律關進沙箱跑（hooks/agy_review.py 的 run_agy），稿裡夾帶的指令它做不成
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "hooks"))
+    import agy_review
+    r = agy_review.run_agy(prompt, model=None, timeout=300)
     t = r.stdout
     i = t.find("你要判的")
     if i < 0:
