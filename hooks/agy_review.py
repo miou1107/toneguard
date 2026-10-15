@@ -32,6 +32,7 @@ MODEL = "gemini-3.8-flash-low"
 CLAUDE_MODEL = "claude-sonnet-5-5"
 TIMEOUT = 240
 ARG_LIMIT = 150_000   # bytes; macOS refuses a single argument much bigger than this
+REVIEW_LIMIT = 80_000  # chars; past this only the changed part goes to the model
 ZH = re.compile(r"[一-鿿]")
 
 PROMPT = """你是熟悉台灣職場溝通的資深資料分析師兼產品經理，母語繁體中文。
@@ -51,8 +52,11 @@ def sha(path: pathlib.Path) -> str:
 
 def visible_text(path: pathlib.Path) -> str:
     """給審稿的人看的是讀者看得到的字，不是標籤跟樣式。"""
-    s = path.read_text(encoding="utf-8", errors="replace")
-    if path.suffix.lower() in {".html", ".htm"}:
+    return clean(path.read_text(encoding="utf-8", errors="replace"), path.suffix)
+
+
+def clean(s: str, suffix: str) -> str:
+    if suffix.lower() in {".html", ".htm"}:
         s = re.sub(r"<(style|script)[^>]*>.*?</\1>", "", s, flags=re.S | re.I)
         s = re.sub(r"<(h[1-6]|p|li|tr|figcaption|pre|div|br)[^>]*>", "\n", s, flags=re.I)
         s = re.sub(r"<(td|th)[^>]*>", " | ", s, flags=re.I)
@@ -61,6 +65,35 @@ def visible_text(path: pathlib.Path) -> str:
     s = re.sub(r"\n\s*\n+", "\n", s)
     # 一個 NUL 字元就會讓 subprocess 整個丟 ValueError（2026-10-04 OwnMind 的 CHANGELOG 踩到）
     return s.replace("\x00", "").strip()
+
+
+def changed_text(path: pathlib.Path) -> str:
+    """大檔只審這次改到的那一段：有還沒 commit 的改動就審那些，沒有就審最後一次改到它的 commit。
+    不在 git 裡或是新檔，回空字串。"""
+    def git(*args):
+        r = subprocess.run(["git", "-C", str(path.parent), *args], capture_output=True, text=True)
+        return r.stdout if r.returncode == 0 else ""
+    diff = git("diff", "HEAD", "--", path.name)
+    if not diff.strip():
+        last = git("log", "-n1", "--format=%H", "--", path.name).strip()
+        if last:
+            diff = git("show", "--format=", last, "--", path.name)
+    added = [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
+    return clean("\n".join(added), path.suffix)
+
+
+def to_review(path: pathlib.Path, text: str):
+    """回傳（要送去審的字, 印給人看的說明）。超過 REVIEW_LIMIT 的大檔整份送，模型讀不完也太貴，
+    所以只送改到的部分；回執照舊認整個檔的 sha256。"""
+    if len(text) <= REVIEW_LIMIT:
+        return text, ""
+    part = changed_text(path)
+    if part and ZH.search(part):
+        part = part[:REVIEW_LIMIT]
+        return part, (f"檔案有 {len(text):,} 字，超過審稿模型一次讀得完的量，"
+                      f"這次只審最近一次改到的 {len(part):,} 字。")
+    return text[:REVIEW_LIMIT], (f"檔案有 {len(text):,} 字，超過審稿模型一次讀得完的量。"
+                                 f"git 裡找不到改動紀錄，這次只審最前面 {REVIEW_LIMIT:,} 字。")
 
 
 def receipts():
@@ -94,10 +127,11 @@ def record(path: pathlib.Path, backend: str, reply: str):
 def ask(text: str, backend: str) -> subprocess.CompletedProcess:
     if backend == "claude":
         # --restricted 跳過設定檔，被叫起來的 claude 才不會再跑一次這些掛勾
+        # 原文走 stdin：塞在參數裡，大檔會撞到系統對單一參數的長度上限（Errno 7，2026-10-11 CHANGELOG）
         env = dict(os.environ, COPY_JUDGE_INNER="1")
-        return subprocess.run(["claude", "-p", PROMPT + text, "--model", CLAUDE_MODEL,
+        return subprocess.run(["claude", "-p", "--model", CLAUDE_MODEL,
                                "--restricted", "--strict-mcp-config"],
-                              capture_output=True, text=True, timeout=TIMEOUT, env=env)
+                              input=PROMPT + text, capture_output=True, text=True, timeout=TIMEOUT, env=env)
     exe = os.environ.get("AGY_REVIEW_BIN") or "agy"
     if len(text.encode("utf-8")) > ARG_LIMIT:
         # 整份塞進參數會超過系統上限（OwnMind 的 CHANGELOG 一萬多行就撞到）。
@@ -119,6 +153,9 @@ def review(path: pathlib.Path, backend: str) -> int:
         print(f"{path.name}：沒有中文，不用審。")
         record(path, backend, "")
         return 0
+    text, note = to_review(path, text)
+    if note:
+        print(f"{path.name}：{note}")
     try:
         r = ask(text, backend)
     except subprocess.TimeoutExpired:

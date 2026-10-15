@@ -8,6 +8,15 @@
 `needs_review` 現在也略過 .glb、.blend、.fbx、.bin、.hdr、.exr、.ktx2 這幾種 3D 模型與貼圖檔。
 測試 `tests/test_agy_receipt_gate.py` 第 10 項。
 
+## 2026-10-11　大檔只送這次改到的部分，Claude 備援改從 stdin 送原文
+
+agy 沒額度的時候要加 `--backend claude` 改問 Claude，舊版把整份原文放在指令參數裡送出去。
+2026-10-11 送審 OwnMind 的 CHANGELOG 時，那份檔有一萬多行，參數超過系統對單一參數的長度上限（Errno 7），審稿直接失敗。
+現在走 Claude 的那條路改從 stdin 送原文，不再受參數長度限制。
+超過 8 萬字的檔，模型一次讀不完，整份送也太花額度，所以只送這次改到的部分。
+有還沒 commit 的改動就送那些改動；沒有的話，送最後一個改到這個檔的 commit 新增的內容。
+不在 git 裡的檔，只送最前面 8 萬字。回執照舊認整個檔的 sha256，畫面上會印出這次審了多少字。
+
 ## 2026-10-07　截圖、PDF、簡報這類二進位檔不再要求送審
 
 idaytour 說明書一次 commit 帶了十幾張 PNG 與四份 PDF、PPTX。關卡用 utf-8 硬讀這些檔，
