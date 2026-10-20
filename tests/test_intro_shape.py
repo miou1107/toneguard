@@ -98,6 +98,16 @@ check("html 的標題也算", "口號標題" in kinds(b), True)
 FENCED = "# 安裝\n\n```bash\n# 先玩一下\nbash install.sh\n# 試試看能不能擋\n```\n\n裝好之後重開對話。\n"
 b, _ = intro_shape.scan_shape(FENCED)
 check("程式碼區塊裡的 shell 註解不算標題", "口號標題" in kinds(b), False)
+BADGED = '<p align="center"><img src="badge.svg"></p>\n\n' + FENCED
+b, _ = intro_shape.scan_shape(BADGED)
+check("有徽章的 README，程式碼區塊照樣剝掉", "口號標題" in kinds(b), False)
+b, _ = intro_shape.scan_shape("<h1>安裝</h1><pre><code># 先玩一下\nbash install.sh\n# 試試看能不能擋</code></pre><p>裝好之後重開對話。</p>")
+check("html 的 pre 區塊裡的註解不算標題", "口號標題" in kinds(b), False)
+STEPS = "# 部署\n\n## 第 1 步 — 讓含前綴的程式進到測試機\n\n內文。\n\n## 讓快取失效\n\n內文。\n\n## 讓測試機吃到新版\n\n內文。\n"
+b, _ = intro_shape.scan_shape(STEPS)
+check("「讓⋯」開頭的步驟標題不算口號", "口號標題" in kinds(b), False)
+b, _ = intro_shape.scan_shape("這一段寫得夠清楚，讀的人不必去翻程式碼。")
+check("不必去不算必去", b, [])
 
 # ---- 設問開場只提醒，不擋 ----
 b, w = intro_shape.scan_shape("高鐵還有四十分鐘才開，肚子已經先抗議了？在北車人擠人的大廳繞了兩圈，還是不知道要吃什麼。")

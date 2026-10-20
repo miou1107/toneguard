@@ -53,8 +53,9 @@ NOT_INTRO = ("/openspec/", "/specs/", "/skills/", "/hooks/", "/tests/", "/test/"
              "CHANGELOG", "CLAUDE.md", "AGENTS.md", "HANDOFF", "FILELIST", "DECISION_LOG",
              "/docs/verification/", "/.claude/")
 
-HTML_NOISE = re.compile(r"<style\b.*?</style>|<script\b.*?</script>|<!--.*?-->", re.S | re.I)
-# markdown 的程式碼區塊：裡面的 # 是 shell 註解，不是標題
+# <pre> 跟 ``` 一樣是程式碼，裡面的 # 是 shell 註解，不是標題
+HTML_NOISE = re.compile(r"<style\b.*?</style>|<script\b.*?</script>|<pre\b.*?</pre>|<!--.*?-->", re.S | re.I)
+# markdown 的程式碼區塊。有徽章的 README 也會夾 <p align="center">，所以不分 html 不 html，一律先剝掉
 CODE_FENCE = re.compile(r"```.*?```|~~~.*?~~~", re.S)
 # <title> 跟 h1 一樣是標題，不是內文；當內文算會把「mod 是什麼？⋯」誤判成設問開場
 H_TAG = re.compile(r"<(?:h[1-6]|title)\b[^>]*>(.*?)</(?:h[1-6]|title)>", re.S | re.I)
@@ -113,10 +114,6 @@ def _strip_quotes(text):
         return text
 
 
-def _is_html(text):
-    return bool(H_TAG.search(text) or re.search(r"<(?:p|div|body|section)\b", text, re.I))
-
-
 def headings(text):
     out = [TAG.sub("", m.group(1)) for m in H_TAG.finditer(text)]
     for line in text.splitlines():
@@ -150,9 +147,7 @@ def scan_shape(text):
     """回 (blocks, warns)，每一列跟 coined_word_guard 一樣是 (bad, good, note, origin)。
     讀不到詞表會丟 FileNotFoundError，呼叫的人要出聲，不要默默放行。"""
     r = _rules()
-    text = HTML_NOISE.sub(" ", text or "")
-    if not _is_html(text):
-        text = CODE_FENCE.sub(" ", text)
+    text = CODE_FENCE.sub(" ", HTML_NOISE.sub(" ", text or ""))
     blocks, warns = [], []
 
     for key in ("ad", "travel"):
@@ -200,11 +195,15 @@ def scan_shape(text):
     for h in headings(text):
         if "？" in h or "?" in h:
             continue
-        for clause in CLAUSE_SEP.split(h):
-            c = clause.strip("。！!：: 　")
-            if c and len(c) <= 14 and (c.startswith(starts) or c.endswith(ends)):
-                slogans.append(h)
-                break
+        # 只看第一句的開頭跟最後一句的結尾。「第 1 步 — 讓含前綴的程式進到測試機」中間那一句
+        # 以「讓」開頭是步驟說明，不是口號
+        clauses = [c.strip("。！!：: 　") for c in CLAUSE_SEP.split(h)]
+        clauses = [c for c in clauses if c]
+        if not clauses:
+            continue
+        first, last = clauses[0], clauses[-1]
+        if (len(first) <= 14 and first.startswith(starts)) or (len(last) <= 14 and last.endswith(ends)):
+            slogans.append(h)
     if len(slogans) >= int(th.get("slogan_headings", 2)):
         blocks.append(_row("口號標題", "、".join(slogans)[:60],
                            "改成讀者會問的問題（mod 是什麼？怎麼做出來的？）或名詞",
