@@ -1,10 +1,11 @@
 # 檔案清單
 
-## hooks/　七支掛勾
+## hooks/　八支掛勾
 
 | 檔案 | 做什麼 | 掛在哪 |
 |---|---|---|
 | `coined_word_guard.py` | 掃詞：自創量詞、口語動詞、比喻、把機器狀態講成人的動作 | PreToolUse（每一個工具，比對規則是 `.*`）與 Stop |
+| `intro_shape.py` | 掃形狀：介紹文、網頁的 AI 味。廣告腔、遊記套話、只描述照片的句子、產品擬人、排比條件句、口號標題一律擋，設問開場只提醒。只管 .html 跟像介紹文的 .md，規格、更新紀錄、回話不走這裡 | 不掛，由 `coined_word_guard.py`（改檔案）與 `copy_gate_on_edit.py`（commit、發到 pages 之前整份重掃）呼叫；也可以自己跑 |
 | `copy_judge.py` | 讀「他問的那一句」加上回覆，給 0 到 10 分。他說看不懂之後，下一次回話改走另一條路：把他退掉的那一份跟重寫的這一份一起送進去問哪一份比較難讀，重寫的那一份還比較難讀就擋。畫面上的短句先收起來，一輪結束再一起判 | PreToolUse（改檔案、Bash）與 Stop |
 | `copy_gate_on_edit.py` | 這次動到引號裡的中文、或要送留言出去，就要求先跑文案 skill。git commit、gh 開單留言、發到 pages 這三個出口，要送出去的中文檔沒有 `agy_review.py` 的回執就擋 | PreToolUse（改檔案、Bash） |
 | `doc_brief.py` | 寫一份新的說明文件之前，四題的答案（讀者是誰、他每天的痛、讀完要做到哪一步、在哪裡讀）先存在 `~/.claude/state/copy-judge/doc-briefs.jsonl`。`copy_gate_on_edit.py` 看到用 Write 新寫一份中文超過 400 字的 .md／.html，沒有那份檔的四題答案就擋 | 不掛，動筆前自己跑 `set`；`check` 查有沒有 |
@@ -35,6 +36,7 @@
 |---|---|
 | `coined-terms.json` | 他親口退過的詞，加上還沒確認的候選 |
 | `copy-patterns.json` | 那些詞歸納出來的六種寫法，用來擋還沒被他退過的第 41 個詞 |
+| `intro-shape.json` | 介紹文、網頁的 AI 味詞表：廣告腔、遊記套話、口號標題的開頭字，以及擋的門檻。要加詞直接加，加之前先數他自己用過幾次 |
 | `agent-doc-rules.json` | 寫給 agent 讀的文件那一套：條件不明確、同一個東西前後兩個名字、數字沒標明是參考值還是目標 |
 | `judge-rubric.txt` | 語意判官的評分規範，externalized 出來才能改版重考 |
 | `judge-rubric-pair.txt` | 另一種問法：兩份稿一起送進去，問哪一份比較難讀，不准打分數。打分數那種問法九對只分對兩對，這一種分對八對 |
@@ -76,6 +78,7 @@
 | `test_scenario_routing.py` | 哪一種動作該拿到哪一張卡片、哪一種該安靜放過去，26 條 |
 | `test_learning_loop.py` | 口語小標攔不攔得住、誇獎與是非題分不分得開、考試的算式對不對，33 條，一次模型呼叫都不花 |
 | `test_paste_back.py` | AI 寫的字被他貼回來的那幾行標不標得到、他改寫過的留不留得住、重建時跳不跳過、紀錄壞了會不會炸，35 條，一次模型呼叫都不花 |
+| `test_intro_shape.py` | 介紹文、網頁的 AI 味：每一種記號一句會被擋的、他核可過的那一頁與他親手寫的 README 放行、規格與回話不管、一般的條件句與「工具替你做」這種正常句子放行、commit 前整份重掃（短首頁也算），43 條，一次模型呼叫都不花 |
 
 ## docs/specs/　規格
 

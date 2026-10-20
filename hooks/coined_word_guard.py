@@ -261,8 +261,9 @@ def report_agent(blocks, warns, path="", terse=False):
     return head + "\n" + "\n".join(out), bool(blocks)
 
 
-def scan(text, corpus=None):
-    """回 (blocks, warns, prefers, unseen)。每一項是一串可讀的欄位。"""
+def scan(text, corpus=None, path=""):
+    """回 (blocks, warns, prefers, unseen)。每一項是一串可讀的欄位。
+    path 只用來判斷這份是不是介紹文或網頁，是的話多掃一層 AI 味的形狀。"""
     text = strip_quotes(text)
     if corpus is None:
         corpus = load_corpus()
@@ -326,6 +327,23 @@ def scan(text, corpus=None):
                 if g not in corpus:
                     freq[g] = freq.get(g, 0) + 1
         unseen = [g for g, n in sorted(freq.items(), key=lambda x: -x[1]) if n >= 2][:15]
+
+    # 介紹文、網頁的 AI 味。禁用詞一個都沒中、他還是一眼看出來的那幾份，壞的是形狀：
+    # 廣告腔、產品擬人、排比條件句、口號標題。Vin 2026-10-20：「這兩個要擋下，其他不用」。
+    # 只掃 .html 跟像介紹文的 .md，回話、規格、程式不走這裡（intro_shape.applies）。
+    if path:
+        try:
+            here = str(pathlib.Path(__file__).resolve().parent)
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import intro_shape
+            if intro_shape.applies(path):
+                sb, sw = intro_shape.scan_shape(text)
+                blocks += sb
+                warns += sw
+        except Exception as e:
+            # 放行等於這一份沒有人看過形狀，而且畫面上還會印一個綠燈，所以要出聲
+            print(f"［文案掃描］介紹文那一層出錯（{type(e).__name__}），這一份沒掃形狀。")
     return blocks, warns, prefers, unseen
 
 
@@ -363,7 +381,7 @@ def his_sentences(text, n=4):
 
 
 def report(text, path="", terse=False):
-    blocks, warns, prefers, unseen = scan(text)
+    blocks, warns, prefers, unseen = scan(text, path=path)
     out = []
     if blocks:
         out.append(f"⛔ 有 {len(blocks)} 處 Vin 退過的寫法，換掉再送：")
@@ -561,7 +579,7 @@ def main():
         # 回話不再退回。退回會讓 AI 把整則回話再貼一次，Vin 畫面上就有兩份
         # 幾乎一樣的回話（2026-10-02 他說「把你重複講話的這個功能關掉」）。
         # 改成記下來，下一輪 copy-voice-inject.py 會把它交給 AI。
-        log_block(path, scan(text)[0])
+        log_block(path, scan(text, path=path)[0])
         f = notice_file(SESSION[0])
         if f:
             try:
@@ -571,7 +589,7 @@ def main():
                 pass
         sys.exit(0)
     if blocked:
-        log_block(path, scan(text)[0])
+        log_block(path, scan(text, path=path)[0])
         # 走到這裡的只剩改檔案、開單、commit、交辦那幾條，它們一律 terse=False，照樣擋。
         # 回話那一條在上面就離開了，從 2026-10-02 起不再退回，改成留一張便條給下一輪。
         if not terse:

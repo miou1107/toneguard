@@ -40,10 +40,13 @@
 
 ```
 ~/.claude/hooks/coined_word_guard.py  ->  hooks/coined_word_guard.py
+~/.claude/hooks/intro_shape.py        ->  hooks/intro_shape.py
 ~/.claude/hooks/copy_judge.py         ->  hooks/copy_judge.py
 ~/.claude/hooks/complaint_learn.py    ->  hooks/complaint_learn.py
 ~/.claude/hooks/copy-voice-inject.py  ->  hooks/copy-voice-inject.py
 ~/.claude/hooks/copy_gate_on_edit.py  ->  hooks/copy_gate_on_edit.py
+~/.claude/hooks/agy_review.py         ->  hooks/agy_review.py
+~/.claude/hooks/doc_brief.py          ->  hooks/doc_brief.py
 ~/.claude/copy-rules                  ->  copy-rules/
 ~/.claude/copy-samples                ->  copy-samples/
 ```

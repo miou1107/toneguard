@@ -15,7 +15,7 @@ link() {  # link <來源> <目的地>
 }
 
 mkdir -p "$C/hooks"
-for h in coined_word_guard.py copy_judge.py complaint_learn.py copy-voice-inject.py copy_gate_on_edit.py; do
+for h in coined_word_guard.py intro_shape.py copy_judge.py complaint_learn.py copy-voice-inject.py copy_gate_on_edit.py agy_review.py doc_brief.py; do
   link "$R/hooks/$h" "$C/hooks/$h"
 done
 link "$R/copy-rules"   "$C/copy-rules"

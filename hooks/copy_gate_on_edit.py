@@ -130,7 +130,7 @@ BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".pdf", 
               ".glb", ".blend", ".fbx", ".bin", ".hdr", ".exr", ".ktx2"}
 
 
-def needs_review(path: Path) -> bool:
+def needs_review(path: Path, min_zh: int = REVIEW_MIN_ZH) -> bool:
     if not path.is_file() or any(x in str(path) for x in EXEMPT + REVIEW_SKIP):
         return False
     if path.suffix.lower() in BINARY_EXT:
@@ -146,13 +146,14 @@ def needs_review(path: Path) -> bool:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import agy_review
-        return len(CJK.findall(agy_review.visible_text(path))) >= REVIEW_MIN_ZH
+        return len(CJK.findall(agy_review.visible_text(path))) >= min_zh
     except Exception:
         return False
 
 
-def files_sent_out(cmd: str, cwd: str) -> list:
-    """這條指令會把哪些中文檔送出去給別人讀。"""
+def files_sent_out(cmd: str, cwd: str, min_zh: int = REVIEW_MIN_ZH) -> list:
+    """這條指令會把哪些中文檔送出去給別人讀。
+    min_zh 是幾個中文字以上才算：審用詞要夠長才有意思，掃形狀一句口號就算。"""
     out = []
     base = Path(cwd or os.getcwd())
     if GIT_COMMIT.search(cmd):
@@ -177,7 +178,7 @@ def files_sent_out(cmd: str, cwd: str) -> list:
         if p in seen:
             continue
         seen.add(p)
-        if needs_review(p):
+        if needs_review(p, min_zh):
             result.append(p)
     return result
 
@@ -189,6 +190,31 @@ def unreviewed(paths: list) -> list:
         return [p for p in paths if not agy_review.receipt_ok(p)]
     except Exception:
         return []
+
+
+def ai_smell(paths: list) -> list:
+    """要送出去的介紹文、網頁裡，哪幾份還有 AI 味的形狀。
+
+    用 Edit 一句一句改進去的頁面，改檔案那一關每次只看到那一句，口號標題數不出來；
+    commit、發到 pages 之前整份再掃一次才抓得到。Vin 2026-10-20：「介紹文、網頁的 AI 味⋯要擋下」。"""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import intro_shape
+    except Exception as e:
+        print(f"介紹文那一層載不進來（{type(e).__name__}），這次送出去的頁面沒掃形狀。", file=sys.stderr)
+        return []
+    out = []
+    for p in paths:
+        if not intro_shape.applies(str(p)):
+            continue
+        try:
+            blocks, _ = intro_shape.scan_file(p)
+        except Exception as e:
+            print(f"{p.name} 掃形狀的時候出錯（{type(e).__name__}），這一份沒掃到。", file=sys.stderr)
+            continue
+        if blocks:
+            out.append((p, blocks))
+    return out
 
 
 # ---- 新寫一份說明文件之前，四題答了沒 ----
@@ -231,7 +257,19 @@ def main() -> int:
     if tool == "Bash":
         cmd = ti.get("command") or ""
         # 要送出去的中文檔先查回執，這一關不看指令本身有沒有中文
-        missing = unreviewed(files_sent_out(cmd, payload.get("cwd") or ""))
+        sent = files_sent_out(cmd, payload.get("cwd") or "")
+        # 掃形狀不設字數門檻：一頁只有幾句口號的首頁也算
+        smelly = ai_smell(files_sent_out(cmd, payload.get("cwd") or "", min_zh=1))
+        if smelly:
+            import intro_shape
+            lines = []
+            for p, blocks in smelly:
+                lines.append(f"{p.name} 有 {len(blocks)} 種介紹文 AI 味，Vin 2026-10-20 說這種要擋下：")
+                lines.append(intro_shape.format_rows(blocks))
+            lines.append("改好再送一次；commit 之前可以先跑 python3 ~/.claude/hooks/intro_shape.py 檔案 自己看。")
+            print("\n".join(lines), file=sys.stderr)
+            return 2
+        missing = unreviewed(sent)
         if missing:
             names = "、".join(p.name for p in missing)
             print(f"這一步會把 {names} 送出去給別人讀，可是現在的內容還沒審過用詞。\n"
