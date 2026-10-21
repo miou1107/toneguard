@@ -2,13 +2,17 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { CopyGateOutput, CopyGateView } from '../types'
-import type { Timer } from 'claude-code'
 
-// ToneGuard：這一輪有中文要給人讀的時候，用一行把「兩個文案 skill 跑了沒」放到輸入框上面。
+// ToneGuard：這一輪有中文要給人讀的時候，AI 回完話在對話裡補一行暗色的字，
+// 寫兩個文案 skill 跑了沒、碰到哪幾份中文、被擋下幾條。
 // 擋的動作本來就由 ~/.claude/hooks/copy_gate_on_edit.py 做；這裡只負責讓 Vin 看得到。
+//
+// 2026-10-04 到 2026-10-21 這一行畫在輸入框上面，三種顏色。Vin 2026-10-21 看了說
+// 「我不知道為什麼要看這個」，三種顏色對他都沒有一個要動手的時刻，所以收掉：
+// 「收掉，不用顯示在那個位置」「可以考慮簡單在對話中小篇幅說一下」「主要是不要佔太多版面」。
 
 const EMPTY: CopyGateView = {
-  turnStartedAt: 0, outputs: [], draftAt: 0, polishAt: 0, blocked: 0, passed: 0, isHidden: false,
+  turnStartedAt: 0, outputs: [], draftAt: 0, polishAt: 0, blocked: 0,
 }
 const view = atom({ plugin: 'copy-gate', key: 'view' } as const, EMPTY)
 
@@ -28,33 +32,9 @@ const SELFTEST = /coined_word_guard|copy_judge|copy_gate_on_edit|complaint_learn
 // 2026-10-03 改名前的舊名也算
 const DRAFT = new Set(['vin-toneguard-draft', 'zh-tw-doc-copy'])
 const POLISH = new Set(['vin-toneguard-polish', 'humanizer-tw'])
-// 擋門那支 python 用的時間窗，跟它一致
-const WINDOW_MS = 45 * 60 * 1000
-// 檔名最多列這麼多個，再多就只寫數量：一次碰十幾個檔的時候，列出來會排滿五行
+// 檔名最多列這麼多個，再多就只寫數量
 const MAX_NAMES = 2
-// 中日韓的字在終端機佔兩格，所以算寬度不能數字元個數
-const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/
-const cells = (s: string) => [...s].reduce((n, c) => n + (WIDE.test(c) ? 2 : 1), 0)
-// 這一行永遠不准換行：排不下就砍掉後面，結尾補一個刪節號
-const fit = (s: string, max: number) => {
-  if (cells(s) <= max) return s
-  let out = '', w = 0
-  for (const c of s) {
-    const cw = WIDE.test(c) ? 2 : 1
-    if (w + cw > max - 1) break
-    out += c; w += cw
-  }
-  return out + '…'
-}
-// 左邊的名字、三個空隙、右邊那個收起來的叉（plain，只畫一個字）。桌面版畫的是自己的按鈕，寬度不一定是一格，
-// 所以多留四格。Vin 2026-10-04：「這個訊息最多只能一行，超長請用...」
-const CHROME = 'ToneGuard'.length + 8
 
-const pad = (n: number) => String(n).padStart(2, '0')
-const clock = (ms: number) => {
-  const d = new Date(ms)
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 const ext = (p: string) => { const m = /\.[^./]+$/.exec(p); return m ? m[0].toLowerCase() : '' }
 const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)
 
@@ -98,24 +78,34 @@ const addOutput = async ($: any, kind: CopyGateOutput['kind'], label: string) =>
     : { ...v, outputs: [...v.outputs, { kind, label, at } satisfies CopyGateOutput] })
 }
 
-// 回完話之後那條字留多久再自動收起來。Vin 2026-10-04 原話：「類似這樣的訊息跳出來只要5s後自己關掉」
-const HIDE_AFTER_MS = 5_000
-let hideTimer: Timer | undefined
-
-// 底下的擋門（python hook）因為文案 skill 沒跑而擋下，就記一次；沒被擋就是中文真的寫出去了
+// 底下的擋門（python hook）因為文案 skill 沒跑而擋下，就記一次
 const countBlocked = async ($: any, ran: any) => {
   const text = String(ran?.deny ?? ran?.text ?? '')
   const isCopyDeny = (ran?.deny !== undefined || ran?.isError === true) && COPY_DENY.test(text)
   if (isCopyDeny) await update($, view, v => ({ ...v, blocked: v.blocked + 1 }))
-  else await update($, view, v => ({ ...v, passed: v.passed + 1 }))
+}
+
+// 回完話補在對話裡的那一行。「文法檢查通過」是 Vin 2026-10-04 親手改的字，「文法還沒檢查」是他同一天說「全部都改」之後的寫法。
+// skill 是上一輪跑的也算還沒檢查：他看不到上一輪，「重新」對他沒有意思（2026-10-21）
+const summaryLine = (v: CopyGateView) => {
+  const files = v.outputs.filter(o => o.kind === 'file').map(o => o.label)
+  const outward = v.outputs.filter(o => o.kind === 'outward').map(o => o.label)
+  const subject = [
+    files.length === 0 ? '' : files.length <= MAX_NAMES ? files.join('、') : `${files.length} 個檔`,
+    ...outward,
+  ].filter(Boolean).join('、')
+  const ranThisTurn = (t: number) => t > 0 && t >= v.turnStartedAt
+  const verdict = ranThisTurn(v.draftAt) && ranThisTurn(v.polishAt) ? '文法檢查通過' : '文法還沒檢查'
+  const blocked = v.blocked > 0 ? `擋下 ${v.blocked} 條・` : ''
+  return `ToneGuard　${verdict}・${blocked}${subject}`
 }
 
 export const register: Register = on => {
+  // 子代理（找人 review、派出去的 agent）的回合也會送 turn.start，不能拿它清掉主代理這一輪的紀錄
   on('turn.start', async ($, e, next) => {
-    hideTimer?.cancel()
-    hideTimer = undefined
+    if (e.agentId !== undefined) return next(e)
     const now = await $.clock.now()
-    await update($, view, v => ({ ...v, turnStartedAt: now, outputs: [], blocked: 0, passed: 0, isHidden: false }))
+    await update($, view, v => ({ ...v, turnStartedAt: now, outputs: [], blocked: 0 }))
     return next(e)
   })
 
@@ -155,85 +145,11 @@ export const register: Register = on => {
     return ran
   })
 
+  // 這一輪碰過要給人讀的中文，回完話在對話裡補一行；沒碰就什麼都不寫
   on('turn.complete', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     const v = await read($, view)
-    const ranThisTurn = (t: number) => t >= v.turnStartedAt
-    // 全部都被擋下來的話，中文根本沒寫出去，紅色那一行已經講了，不用再跳一次
-    if (v.passed > 0 && !(ranThisTurn(v.draftAt) && ranThisTurn(v.polishAt))) {
-      $.ui.toast('剛寫的中文，文法還沒檢查', { timeoutMs: HIDE_AFTER_MS })
-    }
-    if (v.outputs.length > 0) {
-      hideTimer?.cancel()
-      hideTimer = $.clock.after(HIDE_AFTER_MS, () => { update($, view, x => ({ ...x, isHidden: true })) })
-    }
+    if (v.outputs.length > 0) $.ui.log(summaryLine(v))
     return next(e)
-  })
-
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const v = await read($, view)
-    if (e.props.hasSurvey || v.outputs.length === 0 || v.isHidden) return next(e)
-
-    const now = await $.clock.now()
-    const { Box, Button, Text } = $.ui.resolve(e)
-
-    // 這一輪碰到哪幾份要給人讀的中文
-    const files = v.outputs.filter(o => o.kind === 'file').map(o => o.label)
-    const outward = v.outputs.filter(o => o.kind === 'outward').map(o => o.label)
-    const subject = [
-      files.length === 0 ? '' : files.length <= MAX_NAMES ? files.join('、') : `${files.length} 個檔`,
-      ...outward,
-    ].filter(Boolean).join('、')
-
-    // 一個 skill 三種狀態：這一輪跑過、上一輪跑過而且還在時間窗內、沒跑
-    const state = (at: number) =>
-      at > 0 && at >= v.turnStartedAt ? 'ok' : at > 0 && now - at <= WINDOW_MS ? 'stale' : 'none'
-    const ds = state(v.draftAt)
-    const ps = state(v.polishAt)
-
-    const room = Math.max(12, (e.props.bodyColumns ?? 80) - CHROME)
-    const hide = () => update($, view, x => ({ ...x, isHidden: true }))
-    // 擋下幾條兩種顏色都要寫：被擋之後補跑 skill 就變綠色，這個數字正好在那時候消失
-    const blocked = v.blocked > 0 ? `・擋下 ${v.blocked} 條` : ''
-
-    // 綠色那一行的字是 Vin 2026-10-04 親手改的：「都檢查過了 --> 文法檢查通過」，一個字都不動
-    if (ds === 'ok' && ps === 'ok') {
-      return (
-        <Box flexDirection="row" gap={1}>
-          <Text color="green" bold>ToneGuard</Text>
-          <Text dimColor>{fit(`文法檢查通過・${subject}${blocked}（${clock(v.draftAt)}、${clock(v.polishAt)}）`, room)}</Text>
-          <Box flexGrow={1} />
-          <Button key="copy-gate-hide" label="✕" plain dimColor onPress={hide} />
-        </Box>
-      )
-    }
-
-    // 紅字、黃字、提醒都照 Vin 2026-10-04 改綠字的寫法：先寫檢查的對象（文法），再寫結果。他說「全部都改」
-    // 兩個都是上一輪跑的，跟黃字講同一句；只有一個完全沒跑過，才點名是哪一個
-    const verdict = ds === 'none' && ps === 'none' ? '文法還沒檢查'
-      : ds !== 'none' && ps !== 'none' ? '文法還沒重新檢查'
-      : `文法檢查沒跑完，${ds === 'none' ? 'draft' : 'polish'} 沒跑`
-
-    // 黃色是「我還沒檢查，你再等一下」；紅色是「有一句真的沒送出去，你可能要看一下」
-    const tone = v.blocked > 0 ? 'red' : 'yellow'
-
-    // 黃色是寫給 Vin 看的：講清楚是 AI 的事，他不用動手。紅色才需要列出哪一個 skill 沒跑
-    // 有一個 skill 在時間窗裡完全沒跑過，就不能說「重新」。檔名太長的時候先砍檔名，「你不用做什麼」一定要留著
-    const tail = `裡的中文，${ds === 'none' || ps === 'none' ? '文法還沒檢查' : '文法還沒重新檢查'}，你不用做什麼`
-    const head = 'AI 這一輪改了 '
-    // 紅字先寫結果跟擋下幾條，檔名放最後；視窗窄的時候先砍檔名
-    const lead = `${verdict}${blocked}・`
-    const line = tone === 'yellow'
-      ? `${head}${fit(subject, Math.max(4, room - cells(head) - cells(tail) - 1))} ${tail}`
-      : `${lead}${fit(subject, Math.max(4, room - cells(lead)))}`
-
-    return (
-      <Box flexDirection="row" gap={1}>
-        <Text color={tone} bold>ToneGuard</Text>
-        <Text color={tone}>{fit(line, room)}</Text>
-        <Box flexGrow={1} />
-        <Button key="copy-gate-hide" label="✕" plain dimColor onPress={hide} />
-      </Box>
-    )
   })
 }

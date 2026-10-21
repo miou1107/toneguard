@@ -13,12 +13,12 @@
 | `copy-voice-inject.py` | 每一輪把他自己寫過的句子送進 context，並存下他這一句；AI 寫的字被他貼回來的那幾行標成 `echo_lines` | UserPromptSubmit，另外以 `--log-reply` 掛在 Stop，記下 AI 這一輪寫出去的中文 |
 | `complaint_learn.py` | 他說聽不懂就分析上一輪問答分四種原因，連同是哪一個對話說的一起存進 `complaints.jsonl`，重寫那一關要拿它來比；他說寫得好就把前一則存進 `approved.jsonl` | UserPromptSubmit |
 
-## mods/　ToneGuard：輸入框上面那一行
+## mods/　ToneGuard：回完話在對話裡補的那一行
 
 | 檔案 | 做什麼 | 掛在哪 |
 |---|---|---|
-| `copy-gate/hooks/register.tsx` | 這一輪有中文要給人讀的時候，用一行寫出兩個文案 skill 跑了沒，後面接這一輪碰到哪幾份中文。兩個都跑過是綠色，還沒檢查是黃色，有指令真的被擋下來是紅色。檔名最多列兩個名字，再多只寫數量；排不下就截斷，不換行 | `~/.claude/mods/copy-gate`，要在 settings.json 的 `CLAUDE_CODE_PLUGIN_DIRS` 列到 |
-| `copy-gate/hooks/band.test.tsx` | 那一行的測試，16 條 | 跑 `claude plugin test mods/copy-gate` |
+| `copy-gate/hooks/register.tsx` | 這一輪有中文要給人讀的時候，AI 回完話在對話裡補一行暗色的字：兩個文案 skill 跑了沒（文法檢查通過／文法還沒檢查）、擋下幾條、碰到哪幾份中文。檔名最多列兩個名字，再多只寫數量。2026-10-21 之前畫在輸入框上面，Vin 說「不知道為什麼要看這個」就收掉了 | `~/.claude/mods/copy-gate`，要在 settings.json 的 `CLAUDE_CODE_PLUGIN_DIRS` 列到 |
+| `copy-gate/hooks/line.test.tsx` | 那一行的測試，15 條 | 跑 `claude plugin test mods/copy-gate` |
 | `copy-gate/.claude-plugin/plugin.json` | 外掛的名字與版本 | 同上 |
 
 ## copy-rules/　規則與情境

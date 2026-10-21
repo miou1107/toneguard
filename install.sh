@@ -40,7 +40,7 @@ cat <<'TXT'
   UserPromptSubmit                              python3 ~/.claude/hooks/copy-voice-inject.py
   UserPromptSubmit                              python3 ~/.claude/hooks/complaint_learn.py
 
-第二件：把下面這一行加進 settings.json 的 env，輸入框上面那一行才會出現。
+第二件：把下面這一行加進 settings.json 的 env，回完話在對話裡補的那一行才會出現。
 已經有這個設定的話，用冒號接在原本的值後面，不要蓋掉：
 
   "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/copy-gate"
