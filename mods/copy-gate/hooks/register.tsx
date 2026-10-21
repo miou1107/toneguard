@@ -4,7 +4,7 @@ import type { Register } from 'claude-code'
 import type { CopyGateOutput, CopyGateView } from '../types'
 
 // ToneGuard：這一輪有中文要給人讀的時候，AI 回完話在對話裡補一行暗色的字，
-// 寫兩個文案 skill 跑了沒、碰到哪幾份中文、被擋下幾條。
+// 寫兩個文案 skill 跑了沒、碰到哪幾份中文、被擋下幾次。
 // 擋的動作本來就由 ~/.claude/hooks/copy_gate_on_edit.py 做；這裡只負責讓 Vin 看得到。
 //
 // 2026-10-04 到 2026-10-21 這一行畫在輸入框上面，三種顏色。Vin 2026-10-21 看了說
@@ -85,19 +85,23 @@ const countBlocked = async ($: any, ran: any) => {
   if (isCopyDeny) await update($, view, v => ({ ...v, blocked: v.blocked + 1 }))
 }
 
-// 回完話補在對話裡的那一行。「文法檢查通過」是 Vin 2026-10-04 親手改的字，「文法還沒檢查」是他同一天說「全部都改」之後的寫法。
-// skill 是上一輪跑的也算還沒檢查：他看不到上一輪，「重新」對他沒有意思（2026-10-21）
+// 回完話補在對話裡的那一行。字連退三次之後，Vin 2026-10-21 選了「AI 改了 8 個檔案的中文，沒有過文案 skill」：
+// 講 AI 有沒有照規矩做，不講文法、檢查這些流程詞。skill 是上一輪跑的也算沒有過，他看不到上一輪。
 const summaryLine = (v: CopyGateView) => {
   const files = v.outputs.filter(o => o.kind === 'file').map(o => o.label)
   const outward = v.outputs.filter(o => o.kind === 'outward').map(o => o.label)
   const subject = [
-    files.length === 0 ? '' : files.length <= MAX_NAMES ? files.join('、') : `${files.length} 個檔`,
+    files.length === 0 ? '' : files.length <= MAX_NAMES ? files.join('、') : `${files.length} 個檔案`,
     ...outward,
   ].filter(Boolean).join('、')
+  // 檔名這種英文開頭、英文結尾的，跟前後的中文之間留一格；中文檔名不留
+  const lead = /^[A-Za-z0-9]/.test(subject) ? ' ' : ''
+  const sep = /[A-Za-z0-9.]$/.test(subject) ? ' ' : ''
   const ranThisTurn = (t: number) => t > 0 && t >= v.turnStartedAt
-  const verdict = ranThisTurn(v.draftAt) && ranThisTurn(v.polishAt) ? '文法檢查通過' : '文法還沒檢查'
-  const blocked = v.blocked > 0 ? `擋下 ${v.blocked} 條・` : ''
-  return `ToneGuard　${verdict}・${blocked}${subject}`
+  const skills = ranThisTurn(v.draftAt) && ranThisTurn(v.polishAt) ? '有過文案 skill' : '沒有過文案 skill'
+  // 數的是被擋下的指令次數：一次 Write 整份被擋算一次
+  const blocked = v.blocked > 0 ? `，被擋下 ${v.blocked} 次` : ''
+  return `ToneGuard：AI 改了${lead}${subject}${sep}的中文，${skills}${blocked}`
 }
 
 export const register: Register = on => {
