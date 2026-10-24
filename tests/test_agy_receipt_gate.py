@@ -140,6 +140,15 @@ sh(["git", "add", "."], repo)
 rc, err = gate("git com" + "mit -m '3d models'", repo)
 check("3d model files are not sent for review", rc, 0)
 
+# 11. 語音、機器學習模型和 Android 套件也是二進位檔（2026-10-25 Vinstory 小V：喚醒詞模型 encoder.int8.onnx 被當成中文送審，提交一直被擋）
+for name in ("encoder.int8.onnx", "model.tflite", "model.pt", "model.pth", "model.gguf", "model.safetensors", "lib.aar", "lib.jar", "libx.so"):
+    blob = repo / "assets" / name
+    blob.parent.mkdir(exist_ok=True)
+    blob.write_bytes(b"\x08\x07\x12\x00" + ZH_LONG.encode("utf-8") + b"\x00\xff")
+sh(["git", "add", "."], repo)
+rc, err = gate("git com" + "mit -m 'ml models'", repo)
+check("ml model and android package files are not sent for review", rc, 0)
+
 print()
 print("FAILED: " + ", ".join(fails) if fails else "ALL PASS")
 sys.exit(1 if fails else 0)

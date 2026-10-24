@@ -127,7 +127,9 @@ REVIEW_SKIP = ("/skills/", "/hooks/", "/openspec/", "/.github/")   # 寫給 AI �
 BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".pdf", ".pptx", ".docx",
               ".xlsx", ".zip", ".mp3", ".mp4", ".wav", ".woff", ".woff2", ".ttf", ".otf",
               # 3D 模型與貼圖（2026-10-12 house.glb 被送審，審稿模型讀不出東西，回執永遠留不下來）
-              ".glb", ".blend", ".fbx", ".bin", ".hdr", ".exr", ".ktx2"}
+              ".glb", ".blend", ".fbx", ".bin", ".hdr", ".exr", ".ktx2",
+              # 語音與機器學習模型、Android 套件（2026-10-25 Vinstory 喚醒詞模型 encoder.int8.onnx 被送審）
+              ".onnx", ".tflite", ".pt", ".pth", ".gguf", ".safetensors", ".aar", ".jar", ".so"}
 
 
 def needs_review(path: Path, min_zh: int = REVIEW_MIN_ZH) -> bool:
