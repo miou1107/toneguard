@@ -28,7 +28,7 @@ cat <<'TXT'
 
 接下來要自己做兩件事。第一件：把下面這幾個掛勾加進 ~/.claude/settings.json 的 hooks。
 
-  PreToolUse  Edit|Write|MultiEdit|NotebookEdit  python3 ~/.claude/hooks/copy_gate_on_edit.py
+  PreToolUse  Edit|Write|MultiEdit|NotebookEdit|Bash|Artifact|mcp__.*  python3 ~/.claude/hooks/copy_gate_on_edit.py
   PreToolUse  Edit|Write|MultiEdit|NotebookEdit|Bash|Agent|Artifact
                                                 python3 ~/.claude/hooks/coined_word_guard.py
   PreToolUse  Edit|Write|MultiEdit|NotebookEdit  python3 ~/.claude/hooks/copy_judge.py

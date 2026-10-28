@@ -90,3 +90,4 @@
 `gold.jsonl`、`eval-*`、`rejected.jsonl`、`complaints.jsonl`、`approved.jsonl`。
 
 - tests/test_turn_window.py — 文案 skill 要在這一輪跑過才放行的回歸測試
+- tests/test_all_outputs.py — 各種產出方式（程式寫檔、原型、Google 文件、試算表）都要先跑文案 skill 的回歸測試

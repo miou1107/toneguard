@@ -137,6 +137,108 @@ def skills_run(session: str) -> set:
     return seen
 
 
+# ---- 任何產出或修改只要帶中文都要卡控（Vin 2026-10-29：「只要是任何產出或修改都要」）----
+# 以前只看 Edit／Write 和 > 這類寫檔指令。用 Python、node 寫檔、跑一支產生 PPT／Word／圖片的程式、
+# 發布原型網頁、用連接工具寫進 Google 文件或試算表，全部擋不到。
+# 現在改成預設要檢查：指令裡（或它要執行的程式檔裡）有中文，而且不是純讀取，就要這一輪跑過兩個 skill。
+READ_ONLY_CMDS = {"grep", "rg", "cat", "ls", "head", "tail", "find", "wc", "less", "file", "stat",
+                  "pwd", "which", "diff", "jq", "sort", "uniq", "cut", "tr", "du", "tree", "realpath"}
+READ_ONLY_GIT = re.compile(r"^git\s+(?:-C\s+\S+\s+)?(?:log|diff|show|status|grep|blame|rev-parse|branch|ls-files)\b")
+SCRIPT_RUN = re.compile(r"\b(?:python3?|node|bash|sh|zsh|ruby|osascript|uv\s+run\s+python3?)\s+(?:-\S+\s+)*([^\s|;&<>]+\.(?:py|js|mjs|cjs|sh|rb|applescript))\b")
+READ_TOOL = re.compile(r"(?:^|_)(?:read|get|list|search|query|fetch|find|screenshot|snapshot|tabs|context|status|logs|"
+                       r"navigate|zoom|scroll|hover|wait|export|download)(?:_|$)", re.I)
+
+
+def _segments(cmd: str) -> list:
+    return [x.strip() for x in re.split(r"&&|\|\||;|\|", cmd) if x.strip()]
+
+
+def read_only(cmd: str) -> bool:
+    if WRITE_OP.search(cmd.replace("2>&1", "").replace("2>/dev/null", "").replace(">/dev/null", "")):
+        return False
+    for seg in _segments(cmd):
+        if seg.startswith("cd ") or READ_ONLY_GIT.match(seg):
+            continue
+        first = seg.split()[0] if seg.split() else ""
+        if first == "sed" and " -i" not in seg:
+            continue
+        if first not in READ_ONLY_CMDS:
+            return False
+    return True
+
+
+def script_text(cmd: str, cwd: str) -> str:
+    out = []
+    for m in SCRIPT_RUN.finditer(cmd):
+        p = Path(os.path.expanduser(m.group(1)))
+        if not p.is_absolute():
+            p = Path(cwd or os.getcwd()) / p
+        try:
+            out.append(p.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            pass
+    return "\n".join(out)
+
+
+def strings_in(obj) -> str:
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        return "\n".join(strings_in(v) for v in obj.values())
+    if isinstance(obj, list):
+        return "\n".join(strings_in(v) for v in obj)
+    return ""
+
+
+def artifact_text(ti: dict) -> str:
+    parts = [strings_in({k: v for k, v in ti.items() if k not in ("file_path", "files", "file_paths", "url", "root")})]
+    paths = [ti.get("file_path")] + list(ti.get("file_paths") or [])
+    files = ti.get("files")
+    if isinstance(files, dict):
+        for v in files.values():
+            paths.append(v.get("from") if isinstance(v, dict) else v)
+    elif isinstance(files, list):
+        paths += [f.get("path") for f in files if isinstance(f, dict)]
+    root = ti.get("root") or ""
+    for p in paths:
+        if not isinstance(p, str) or not p:
+            continue
+        path = Path(os.path.expanduser(p))
+        if not path.is_absolute() and root:
+            path = Path(root) / path
+        try:
+            if path.suffix.lower() not in BINARY_EXT:
+                parts.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            pass
+    return "\n".join(parts)
+
+
+# 對話本身的工具不擋（跟回 Vin 的話一樣）：進度清單、結尾框、開新對話、AI 自己的記憶庫。
+CONVERSATION_TOOLS = ("mcp__ccd_", "mcp__ownmind__", "mcp__wrapup-check__")
+
+
+def tool_writes_cjk(tool: str, ti: dict) -> bool:
+    """Artifact 與連接工具（Google 文件、簡報、試算表、瀏覽器填表⋯）這次有沒有要寫出中文。"""
+    if tool.startswith(CONVERSATION_TOOLS):
+        return False
+    if tool == "Artifact":
+        if (ti.get("action") or "publish") not in ("publish",):
+            return False
+        return bool(CJK.search(artifact_text(ti)))
+    name = tool.split("__")[-1]
+    if READ_TOOL.search(name):
+        return False
+    return bool(CJK.search(strings_in(ti)))
+
+
+def block_copy(what: str) -> int:
+    print(f"{what}帶有使用者會看到的中文。\n"
+          "這一輪還沒跑過文案 skill：先跑 vin-toneguard-draft（動筆前）再跑 vin-toneguard-polish（寫完），然後再做一次。",
+          file=sys.stderr)
+    return 2
+
+
 # ---- 送出去之前，有沒有讓另一個模型審過用詞 ----
 # 2026-10-04 補的：規則寫著「兩隻 skill 跑完，再送 agy 審一次用詞」，但沒有程式查，
 # 所以那一步一直漏。現在 git commit、gh 開單留言、發到 pages 這三個出口，
@@ -314,7 +416,11 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         if not CJK.search(cmd):
-            return 0
+            if read_only(cmd) or not CJK.search(script_text(cmd, payload.get("cwd") or "")):
+                return 0
+            if NEEDED <= skills_run(payload.get("session_id", "")):
+                return 0
+            return block_copy("這條指令要執行的程式")
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import coined_word_guard as g
@@ -326,10 +432,12 @@ def main() -> int:
         # 2026-10-03 補：printf/echo 加 >、tee、sed -i 把中文寫進 md 或程式檔，
         # 跟用 Write 工具寫是同一件事，以前這條路整段沒人管（copy-gate mod 實測抓到）。
         written = shell_written_files(cmd)
-        if not is_outward and not written:
+        if not is_outward and not written and read_only(cmd):
             return 0
         if NEEDED <= skills_run(payload.get("session_id", "")):
             return 0
+        if not is_outward and not written:
+            return block_copy("這條指令會產出或修改東西，而且")
         if is_outward:
             print("這一次要送出去給別人讀的中文，這一輪還沒跑過文案 skill。\n"
                   "先跑 vin-toneguard-draft 再跑 vin-toneguard-polish，然後再送一次。", file=sys.stderr)
@@ -340,6 +448,10 @@ def main() -> int:
         return 2
 
     if tool not in {"Edit", "Write", "MultiEdit", "NotebookEdit"}:
+        if tool and (tool == "Artifact" or tool.startswith("mcp__")) and tool_writes_cjk(tool, ti):
+            if NEEDED <= skills_run(payload.get("session_id", "")):
+                return 0
+            return block_copy(f"這次用 {tool} 產出或修改的內容")
         return 0
 
     path = ti.get("file_path") or ti.get("notebook_path") or ""
