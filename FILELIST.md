@@ -88,3 +88,5 @@
 
 不進版控的（見 `.gitignore`）：`sources/`、`vin-corpus*.txt`、`vin-raw-messages.jsonl`、
 `gold.jsonl`、`eval-*`、`rejected.jsonl`、`complaints.jsonl`、`approved.jsonl`。
+
+- tests/test_turn_window.py — 文案 skill 要在這一輪跑過才放行的回歸測試

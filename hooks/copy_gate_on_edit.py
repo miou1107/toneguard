@@ -38,6 +38,38 @@ NEEDED = {"vin-toneguard-draft", "vin-toneguard-polish"}
 # has the old names loaded, so a run under the old name counts as the new one.
 OLD_NAMES = {"zh-tw-doc-copy": "vin-toneguard-draft", "humanizer-tw": "vin-toneguard-polish"}
 WINDOW_SEC = 45 * 60
+# 2026-10-29 Conster 原型：Vin 上一則訊息時跑過兩個 skill，下一則改中文時，45 分鐘的窗口照樣放行，
+# 對話裡那一行提醒卻寫「沒有過文案 skill」。現在 Vin 每送一則訊息就記下時間（--mark-turn），
+# skill 要在那之後跑才算數；還沒記過的對話才退回 45 分鐘。
+TURNS = Path(os.environ.get("COPY_GATE_TURNS") or (Path.home() / ".claude" / "state" / "copy_gate_turns.json"))
+
+
+def turn_started(session: str) -> float:
+    try:
+        return float(json.loads(TURNS.read_text(encoding="utf-8")).get(session) or 0)
+    except Exception:
+        return 0.0
+
+
+def mark_turn() -> int:
+    try:
+        session = json.load(sys.stdin).get("session_id") or ""
+    except Exception:
+        return 0
+    if not session:
+        return 0
+    try:
+        data = json.loads(TURNS.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    now = time.time()
+    data = {k: v for k, v in data.items() if now - float(v) < 7 * 86400}
+    data[session] = now
+    TURNS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = TURNS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(tmp, TURNS)
+    return 0
 
 
 def added_text(tool_input: dict) -> str:
@@ -82,6 +114,7 @@ def shell_written_files(cmd: str) -> list:
 def skills_run(session: str) -> set:
     seen = set()
     now = time.time()
+    since = turn_started(session)
     try:
         for line in SKILL_LOG.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
@@ -96,7 +129,8 @@ def skills_run(session: str) -> set:
                 t = time.mktime(time.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")) - time.timezone
             except Exception:
                 continue
-            if now - t <= WINDOW_SEC:
+            # ts 只到秒，輪次起點往下取整秒再比，同一秒內跑的也算
+            if (t >= int(since)) if since else (now - t <= WINDOW_SEC):
                 seen.add(skill)
     except OSError:
         pass
@@ -344,4 +378,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(mark_turn() if "--mark-turn" in sys.argv else main())
