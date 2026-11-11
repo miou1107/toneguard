@@ -145,7 +145,7 @@ GEMINI_READS = [
 def programs(exe: str, test: bool) -> set:
     """沙箱裡准許啟動的程式，只有 agy 自己。測試用的假 agy（AGY_REVIEW_BIN）是 shell 腳本，要連直譯器一起准；
     macOS 的 /bin/sh 會再去執行 /private/var/select/sh 指定的 shell。真的 agy 是編譯好的程式，不准任何直譯器。"""
-    allowed = {exe, os.path.realpath(exe)}
+    allowed = {exe, os.path.realpath(exe), "/usr/bin/security"}  # agy 1.5.5 起從鑰匙圈讀登入，要叫 security
     try:
         with open(exe, "rb") as f:
             first = f.readline()
@@ -175,6 +175,7 @@ def sandbox_profile(folder: pathlib.Path, exe: str, test: bool = False) -> str:
         "(allow default)",
         "(deny file-read* " + " ".join(f"(subpath {q(p)})" for p in sorted(hidden)) + ")",
         f"(allow file-read* (subpath {q(folder)}) " + " ".join(f"(literal {q(p)})" for p in sorted(files)) + ")",
+        f"(allow file-read* (subpath {q(HOME / 'Library/Keychains')}))",
         "(deny file-write*)",
         f'(allow file-write* (subpath {q(folder)}) (literal "/dev/null") (literal "/dev/dtracehelper") (regex #"^/dev/fd/"))',
         "(deny process-exec)",
