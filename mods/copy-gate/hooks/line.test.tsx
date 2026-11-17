@@ -239,3 +239,70 @@ test('中文檔名：「改了」跟檔名之間不留空格', async ($, on) => 
   await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
   expect(logs).toEqual(['ToneGuard：AI 改了說明.md 的中文，沒有過文案 skill'])
 })
+
+// 2026-11-17 Vin 處理急件時嫌文案檢查太慢，要一個只關目前對話的開關（/toneguard-off）。
+// 關掉的對話裡底下的擋門不再擋，這一行如果照樣寫「沒有過文案 skill」，每一輪都在提醒一件他刻意關掉的事。
+const submit = (on: any) => (on as any)('prompt.submit', (_: any, e: any) => ({ text: e.text }))
+
+test('打 /toneguard-off 之後：寫了中文也不補那一行', async ($, on) => {
+  const now = { t: T0 }
+  const { logs } = setup(on, now)
+  ok(on)
+  submit(on)
+  await ($ as any).prompt.submit({ text: '/toneguard-off', wait: false })
+  await ($ as any).turn.start({ text: '/toneguard-off', turnId: 't1' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
+  await ($ as any).turn.start({ text: '改一下說明', turnId: 't2' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/README.md', content: '旅客會看到今天的行程' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't2' })
+  expect(logs.length).toBe(0)
+})
+
+test('打 /toneguard-on 之後：恢復補那一行', async ($, on) => {
+  const now = { t: T0 }
+  const { logs } = setup(on, now)
+  ok(on)
+  submit(on)
+  await ($ as any).prompt.submit({ text: '/toneguard-off', wait: false })
+  await ($ as any).prompt.submit({ text: '/toneguard-on', wait: false })
+  await ($ as any).turn.start({ text: '改一下說明', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/README.md', content: '旅客會看到今天的行程' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
+  expect(logs).toEqual(['ToneGuard：AI 改了 README.md 的中文，沒有過文案 skill'])
+})
+
+test('句子中間提到 /toneguard-off 不算關掉', async ($, on) => {
+  const now = { t: T0 }
+  const { logs } = setup(on, now)
+  ok(on)
+  submit(on)
+  await ($ as any).prompt.submit({ text: '幫我做一個 /toneguard-off 的開關', wait: false })
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/README.md', content: '旅客會看到今天的行程' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
+  expect(logs).toEqual(['ToneGuard：AI 改了 README.md 的中文，沒有過文案 skill'])
+})
+
+test('AI 自己跑開關程式關掉不算：照樣補那一行', async ($, on) => {
+  const now = { t: T0 }
+  const { logs } = setup(on, now)
+  ok(on)
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'python3 ~/.claude/hooks/toneguard_switch.py off' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/README.md', content: '旅客會看到今天的行程' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
+  expect(logs).toEqual(['ToneGuard：AI 改了 README.md 的中文，沒有過文案 skill'])
+})
+
+test('AI 照 /toneguard-on 的說明跑開關程式打開：恢復補那一行', async ($, on) => {
+  const now = { t: T0 }
+  const { logs } = setup(on, now)
+  ok(on)
+  submit(on)
+  await ($ as any).prompt.submit({ text: '/toneguard-off', wait: false })
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'python3 ~/.claude/hooks/toneguard_switch.py on' })
+  await ($ as any).tool.call({ tool: 'Write', file_path: '/w/docs/README.md', content: '旅客會看到今天的行程' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
+  expect(logs).toEqual(['ToneGuard：AI 改了 README.md 的中文，沒有過文案 skill'])
+})

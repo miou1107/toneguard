@@ -12,7 +12,7 @@ import type { CopyGateOutput, CopyGateView } from '../types'
 // 「收掉，不用顯示在那個位置」「可以考慮簡單在對話中小篇幅說一下」「主要是不要佔太多版面」。
 
 const EMPTY: CopyGateView = {
-  turnStartedAt: 0, outputs: [], draftAt: 0, polishAt: 0, blocked: 0,
+  turnStartedAt: 0, outputs: [], draftAt: 0, polishAt: 0, blocked: 0, off: false,
 }
 const view = atom({ plugin: 'copy-gate', key: 'view' } as const, EMPTY)
 
@@ -29,6 +29,12 @@ const EXEMPT = [
 // 跟 coined_word_guard.py 的 OUTWARD 同一份：會送到別人眼前的指令
 const OUTWARD = /\bgh\s+(?:issue|pr|release|gist|label)\s+(?:comment|create|edit|close|reopen)\b|\bgit\s+(?:commit|tag)\b|\bgh\s+api\b|gspread|googleapis\.com\/|docs\.google\.com|sheets\.google\.com/
 const SELFTEST = /coined_word_guard|copy_judge|copy_gate_on_edit|complaint_learn|scenario\.py|copy-samples|copy-rules|toneguard|judge_exam|build_gold/
+// 2026-11-17 只關目前對話的開關（hooks/toneguard_switch.py）。Vin 打 /toneguard-off 之後，
+// 底下的擋門就不再擋；這一行也跟著不補，不然每一輪都在提醒一件他刻意關掉的事。
+// 跟 toneguard_switch.py 用同一份認法：整則訊息一開頭就是指令才算，句子中間提到、貼進來的紀錄都不算。
+// 關掉只認 Vin 打的字；AI 跑開關程式只認打開（整條指令就只是 on），AI 自己關掉不算。
+const SWITCH_PROMPT = /^\s*(?:\/toneguard-(off|on)\b|(?:<command-message>[^<]*<\/command-message>\s*)?<command-name>\/?toneguard-(off|on)<\/command-name>)/
+const SWITCH_ON_BASH = /^\s*(?:python3?|py)\s+\S*toneguard_switch\.py\s+on\s*$/
 // 2026-10-03 改名前的舊名也算
 const DRAFT = new Set(['vin-toneguard-draft', 'zh-tw-doc-copy'])
 const POLISH = new Set(['vin-toneguard-polish', 'humanizer-tw'])
@@ -104,7 +110,18 @@ const summaryLine = (v: CopyGateView) => {
   return `ToneGuard：AI 改了${lead}${subject}${sep}的中文，${skills}${blocked}`
 }
 
+const setOff = async ($: any, act: string | undefined) => {
+  if (act === 'off' || act === 'on') await update($, view, v => ({ ...v, off: act === 'off' }))
+}
+
 export const register: Register = on => {
+  on('prompt.submit', async ($, e, next) => {
+    const m = SWITCH_PROMPT.exec(e.text ?? '')
+    const name = e.command?.name
+    await setOff($, m ? (m[1] ?? m[2]) : name === 'toneguard-off' ? 'off' : name === 'toneguard-on' ? 'on' : undefined)
+    return next(e)
+  })
+
   // 子代理（找人 review、派出去的 agent）的回合也會送 turn.start，不能拿它清掉主代理這一輪的紀錄
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
@@ -139,6 +156,7 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (e.agentId === undefined && SWITCH_ON_BASH.test(e.command)) await setOff($, 'on')
     const isMain = e.agentId === undefined && CJK.test(e.command) && !SELFTEST.test(e.command)
     const isOutward = isMain && OUTWARD.test(e.command)
     if (isOutward) await addOutput($, 'outward', outwardLabel(e.command))
@@ -153,7 +171,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     const v = await read($, view)
-    if (v.outputs.length > 0) $.ui.log(summaryLine(v))
+    if (v.outputs.length > 0 && !v.off) $.ui.log(summaryLine(v))
     return next(e)
   })
 }

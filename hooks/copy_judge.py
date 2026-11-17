@@ -475,10 +475,23 @@ def last_question(transcript_path):
     return ""
 
 
+def toneguard_off(payload) -> bool:
+    """目前的對話打過 /toneguard-off 就整支跳過，規則在 toneguard_switch.py。
+    讀不到那支程式就當成開著，照常檢查。"""
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import toneguard_switch
+        return toneguard_switch.skip(payload)
+    except Exception:
+        return False
+
+
 def from_hook():
     try:
         payload = json.load(sys.stdin)
     except Exception:
+        return None, "", ""
+    if toneguard_off(payload):
         return None, "", ""
     SESSION[0] = payload.get("session_id") or ""
     if payload.get("hook_event_name") == "Stop":
@@ -574,6 +587,14 @@ def main():
     if os.environ.get("COPY_JUDGE_OFF") or os.environ.get("COPY_JUDGE_INNER"):
         sys.exit(0)
     if "--ui-flush" in argv:
+        # 關掉 ToneGuard 的對話不送畫面文字去審。別的對話留下的那幾筆也不動，
+        # 留給它們自己回完話的時候送。
+        if not sys.stdin.isatty():
+            try:
+                if toneguard_off(json.load(sys.stdin)):
+                    sys.exit(0)
+            except (ValueError, OSError):
+                pass
         flush_ui()
         sys.exit(0)
     question = argv[argv.index("--question") + 1] if "--question" in argv else ""

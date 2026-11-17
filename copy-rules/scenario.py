@@ -170,6 +170,17 @@ def note_unmatched(tool, path, cmd):
         pass
 
 
+def toneguard_off(payload) -> bool:
+    """目前的對話打過 /toneguard-off 就整支跳過，規則在 toneguard_switch.py。
+    讀不到那支程式就當成開著，照常檢查。"""
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "hooks"))
+        import toneguard_switch
+        return toneguard_switch.skip(payload)
+    except Exception:
+        return False
+
+
 def main():
     argv = sys.argv[1:]
     rows = load()
@@ -193,6 +204,8 @@ def main():
     try:
         p = json.load(sys.stdin)
     except Exception:
+        return
+    if toneguard_off(p):
         return
     ti = p.get("tool_input") or {}
     path = ti.get("file_path") or ti.get("notebook_path") or ""

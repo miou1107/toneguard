@@ -44,6 +44,28 @@ WINDOW_SEC = 45 * 60
 TURNS = Path(os.environ.get("COPY_GATE_TURNS") or (Path.home() / ".claude" / "state" / "copy_gate_turns.json"))
 
 
+def toneguard_off(payload) -> bool:
+    """目前的對話打過 /toneguard-off 就整支跳過，規則在 toneguard_switch.py。
+    讀不到那支程式就當成開著，照常檢查。"""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import toneguard_switch
+        return toneguard_switch.skip(payload)
+    except Exception:
+        return False
+
+
+def toneguard_self_off(payload) -> bool:
+    """AI 想執行 toneguard_switch.py off 關掉自己這個對話。只有 Vin 輸入 /toneguard-off 才算。"""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import toneguard_switch
+        return (toneguard_switch.self_off_attempt(payload)
+                and not toneguard_switch.is_off(payload.get("session_id")))
+    except Exception:
+        return False
+
+
 def turn_started(session: str) -> float:
     try:
         return float(json.loads(TURNS.read_text(encoding="utf-8")).get(session) or 0)
@@ -53,9 +75,12 @@ def turn_started(session: str) -> float:
 
 def mark_turn() -> int:
     try:
-        session = json.load(sys.stdin).get("session_id") or ""
+        payload = json.load(sys.stdin)
+        session = payload.get("session_id") or ""
     except Exception:
         return 0
+    # 關著也照樣記時間：之後打 /toneguard-on，擋門看的「這一輪」才是對的
+    toneguard_off(payload)
     if not session:
         return 0
     try:
@@ -386,6 +411,12 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except Exception:
+        return 0
+    if toneguard_self_off(payload):
+        print("目前這個對話的 ToneGuard 只能由 Vin 在對話裡輸入 /toneguard-off 關掉，"
+              "AI 不能自己執行 toneguard_switch.py off。照常先跑文案 skill，再做一次。", file=sys.stderr)
+        return 2
+    if toneguard_off(payload):
         return 0
     tool = payload.get("tool_name")
     ti = payload.get("tool_input") or {}

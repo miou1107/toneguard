@@ -311,6 +311,17 @@ def archive(payload: dict) -> None:
         pass
 
 
+def toneguard_off(payload) -> bool:
+    """目前的對話打過 /toneguard-off 就整支跳過，規則在 toneguard_switch.py。
+    讀不到那支程式就當成開著，照常檢查。"""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import toneguard_switch
+        return toneguard_switch.skip(payload)
+    except Exception:
+        return False
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -325,6 +336,14 @@ def main() -> int:
         return 0
 
     archive(payload)
+    if toneguard_off(payload):
+        sid = re.sub(r"[^A-Za-z0-9_-]", "", payload.get("session_id") or "")
+        if sid:
+            try:
+                (Path.home() / ".claude" / "state" / "copy-gate" / "pending-reply" / f"{sid}.txt").unlink()
+            except OSError:
+                pass
+        return 0
 
     try:
         body = SAMPLES.read_text(encoding="utf-8")

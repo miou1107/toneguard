@@ -164,10 +164,23 @@ def is_praise(msg):
     return bool(PRAISE.search(bare)), bare
 
 
+def toneguard_off(payload) -> bool:
+    """目前的對話打過 /toneguard-off 就整支跳過，規則在 toneguard_switch.py。
+    讀不到那支程式就當成開著，照常檢查。"""
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        import toneguard_switch
+        return toneguard_switch.skip(payload)
+    except Exception:
+        return False
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
     except Exception:
+        return
+    if toneguard_off(payload):
         return
     msg = payload.get("prompt") or ""
     # 他抱怨的時候打的是一句話。整篇貼回來的東西裡面只要出現「聽不懂」三個字，

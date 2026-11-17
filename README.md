@@ -38,6 +38,21 @@ bash install.sh
 它會把這個 repo 的掛勾連進 `~/.claude/hooks`，再把規則與語料資料夾連進 `~/.claude`。
 安裝完之後要自己在 `~/.claude/settings.json` 把五個掛勾掛上去，`install.sh` 會印出要貼的內容。
 
+### 處理急件時，只關目前這個對話
+
+AI 每一則回覆都要等送審，寫檔前也要先跑兩個文案 skill，處理急件時會太慢。
+在對話裡輸入 `/toneguard-off`，這個對話的送審、擋門、樣本注入、用詞檢查、情境卡片、看不懂診斷都會暫停，
+AI 回完話也不再補 ToneGuard 提醒。
+
+- 其他對話照常檢查。
+- 開新對話時 ToneGuard 會自動恢復。
+- 輸入 `/toneguard-on` 可以馬上打開。
+- 只有 Vin 輸入的 `/toneguard-off` 算數，AI 不能自己把檢查關掉。
+
+關掉的對話裡，Vin 打的訊息照常存進語料，AI 寫出去的中文也照常記下來。
+這樣 Vin 之後把 AI 寫的字貼回來，ToneGuard 存進語料時才能分辨那是貼回來的字。
+其他電腦更新這個 repo 之後，要再跑一次 `bash install.sh`，`/toneguard-off`、`/toneguard-on` 這兩個指令才會出現。
+
 ---
 
 ## 兩層檢查，各擋不同的東西

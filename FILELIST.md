@@ -1,6 +1,6 @@
 # 檔案清單
 
-## hooks/　八支掛勾
+## hooks/　八支掛勾與一個開關
 
 | 檔案 | 做什麼 | 掛在哪 |
 |---|---|---|
@@ -11,6 +11,7 @@
 | `doc_brief.py` | 寫一份新的說明文件之前，四題的答案（讀者是誰、他每天的痛、讀完要做到哪一步、在哪裡讀）先存在 `~/.claude/state/copy-judge/doc-briefs.jsonl`。`copy_gate_on_edit.py` 看到用 Write 新寫一份中文超過 400 字的 .md／.html，沒有那份檔的四題答案就擋 | 不掛，動筆前自己跑 `set`；`check` 查有沒有 |
 | `agy_review.py` | 把一份中文檔送給另一個模型審用詞，印出意見，審過就依內容的 sha256 留一張回執在 `~/.claude/state/copy-judge/agy-receipts.jsonl`。改過一個字回執就失效。呼叫 agy 的地方都走這裡的 `run_agy`：agy 關在 macOS 沙箱裡跑，寫不到暫存資料夾以外的檔案，也不能啟動別的程式 | 不掛，送出前自己跑；`--check` 查回執 |
 | `copy-voice-inject.py` | 每一輪把他自己寫過的句子送進 context，並存下他這一句；AI 寫的字被他貼回來的那幾行標成 `echo_lines` | UserPromptSubmit，另外以 `--log-reply` 掛在 Stop，記下 AI 這一輪寫出去的中文 |
+| `toneguard_switch.py` | 只關目前這個對話的開關。Vin 輸入 `/toneguard-off` 就記在 `~/.claude/state/toneguard-off/對話編號.json`，輸入 `/toneguard-on` 就刪掉。其他掛勾讀完輸入第一件事是問它，這個對話關著就整支跳過；紀錄讀不到一律當成開著。AI 自己執行 `off` 關掉目前的對話會被擋門擋下 | 不掛，由其他掛勾呼叫；`status` 查目前的對話關了沒，`on` 打開，`off --session 對話編號` 替 Vin 關掉另一個對話 |
 | `complaint_learn.py` | 他說聽不懂就分析上一輪問答分四種原因，連同是哪一個對話說的一起存進 `complaints.jsonl`，重寫那一關要拿它來比；他說寫得好就把前一則存進 `approved.jsonl` | UserPromptSubmit |
 
 ## mods/　ToneGuard：回完話在對話裡補的那一行
@@ -18,8 +19,15 @@
 | 檔案 | 做什麼 | 掛在哪 |
 |---|---|---|
 | `copy-gate/hooks/register.tsx` | 這一輪有中文要給人讀的時候，AI 回完話在對話裡補一行暗色的字：兩個文案 skill 跑了沒（有過／沒有過文案 skill）、被擋下幾次、碰到哪幾份中文。檔名最多列兩個名字，再多只寫數量。2026-10-21 之前畫在輸入框上面，Vin 說「不知道為什麼要看這個」就收掉了 | `~/.claude/mods/copy-gate`，要在 settings.json 的 `CLAUDE_CODE_PLUGIN_DIRS` 列到 |
-| `copy-gate/hooks/line.test.tsx` | 那一行的測試，16 條 | 跑 `claude plugin test mods/copy-gate` |
+| `copy-gate/hooks/line.test.tsx` | 補行提醒的測試，20 條，含輸入 `/toneguard-off` 之後不補提醒 | 跑 `claude plugin test mods/copy-gate` |
 | `copy-gate/.claude-plugin/plugin.json` | 外掛的名字與版本 | 同上 |
+
+## commands/　斜線指令
+
+| 檔案 | 做什麼 | 裝在哪 |
+|---|---|---|
+| `toneguard-off.md` | `/toneguard-off`：關掉目前這個對話的 ToneGuard，回 Vin 一句已關閉 | `install.sh` 連到 `~/.claude/commands/` |
+| `toneguard-on.md` | `/toneguard-on`：重新打開目前這個對話的 ToneGuard | 同上 |
 
 ## copy-rules/　規則與情境
 
@@ -63,6 +71,7 @@
 |---|---|---|
 | `copy-gate/blocks.jsonl` | 每一次擋下來：時間、哪一條路、擋到哪幾個寫法 | 這一週擋了幾次、第一稿就對了沒有 |
 | `copy-gate/unmatched.jsonl` | 真的要給人讀、可是認不出情境的動作 | 還有哪幾種情境沒進目錄。2026-10-03 之前連 grep 與 echo 都記，所以舊的那 3,000 多筆有 86% 是雜訊 |
+| `toneguard-off/對話編號.json` | 哪幾個對話輸入過 `/toneguard-off`。輸入 `/toneguard-on` 就刪掉，一週沒動的自動清掉 | 這個對話現在關了沒 |
 | `copy-judge/judged.jsonl` | 第二層每一次的結果：時間、過、提醒、退回、判不了 | 每百則攔幾則、它從哪一天開始判不了 |
 
 **每一筆都要寫時間。** 2026-10-03 之前沒寫，所以那 1,639 筆只算得出總量，
@@ -91,3 +100,4 @@
 
 - tests/test_turn_window.py — 文案 skill 要在這一輪跑過才放行的回歸測試
 - tests/test_all_outputs.py — 各種產出方式（程式寫檔、原型、Google 文件、試算表）都要先跑文案 skill 的回歸測試
+- tests/test_session_off.py — `/toneguard-off` 只關目前這個對話的回歸測試：每一種檢查先確認打開時會擋，關掉後才放行；別的對話照常檢查；開關紀錄壞掉時照常檢查

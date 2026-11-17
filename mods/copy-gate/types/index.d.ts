@@ -12,6 +12,8 @@ export type CopyGateView = {
   polishAt: number
   /** 這一輪被擋下幾次 */
   blocked: number
+  /** 這個對話打過 /toneguard-off（打 /toneguard-on 才會恢復） */
+  off: boolean
 }
 
 declare module 'claude-code' {

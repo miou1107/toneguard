@@ -15,11 +15,17 @@ link() {  # link <來源> <目的地>
 }
 
 mkdir -p "$C/hooks"
-for h in coined_word_guard.py intro_shape.py copy_judge.py complaint_learn.py copy-voice-inject.py copy_gate_on_edit.py agy_review.py doc_brief.py; do
+for h in coined_word_guard.py intro_shape.py copy_judge.py complaint_learn.py copy-voice-inject.py copy_gate_on_edit.py agy_review.py doc_brief.py toneguard_switch.py; do
   link "$R/hooks/$h" "$C/hooks/$h"
 done
 link "$R/copy-rules"   "$C/copy-rules"
 link "$R/copy-samples" "$C/copy-samples"
+
+# /toneguard-off、/toneguard-on：只關或只開目前這個對話的檢查
+mkdir -p "$C/commands"
+for c in toneguard-off.md toneguard-on.md; do
+  link "$R/commands/$c" "$C/commands/$c"
+done
 
 mkdir -p "$C/mods"
 link "$R/mods/copy-gate" "$C/mods/copy-gate"
