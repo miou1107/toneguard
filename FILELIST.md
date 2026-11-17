@@ -101,3 +101,4 @@
 - tests/test_turn_window.py — 文案 skill 要在這一輪跑過才放行的回歸測試
 - tests/test_all_outputs.py — 各種產出方式（程式寫檔、原型、Google 文件、試算表）都要先跑文案 skill 的回歸測試
 - tests/test_session_off.py — `/toneguard-off` 只關目前這個對話的回歸測試：每一種檢查先確認打開時會擋，關掉後才放行；別的對話照常檢查；開關紀錄壞掉時照常檢查
+- tests/test_selftest_bypass.py — 回歸測試：指令裡有 toneguard 這類字，要送出去或寫進檔案的中文照樣要檢查。每一種檢查先確認指令裡沒有 toneguard 時會擋，加上 toneguard 以後還是擋；在 repo 裡跑自己的檢查程式照樣放行

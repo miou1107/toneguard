@@ -25,8 +25,10 @@ coined_word_guard.py — 擋「我自己發明的詞」。
 退出碼：0 通過或只有提醒；2 有 block 級的違規（hook 會把訊息塞回 AI 眼前）。
 """
 import json
+import os
 import pathlib
 import re
+import shlex
 import sys
 import time
 
@@ -35,9 +37,16 @@ import time
 # 跟 issue 內文一樣，可是原本的清單只認 issue／pr／release／gist，整行沒被掃過。
 # 其他 Bash 指令裡的中文
 # 多半是我在測試或 grep，掃了只會擋住自己做事。
+# git 與 gh 中間可以夾全域選項：git -C 路徑 commit、git -c 設定 commit、gh -R 某 repo issue comment。
+# 2026-11-17 補：以前只認 git commit、gh issue comment 連在一起的寫法，夾了選項就整條沒被掃。
+_QVAL = r"(?:\"[^\"]*\"|'[^']*'|\S+)"
+_GIT_OPTS = (r"(?:\s+(?:-[Cc]\s+" + _QVAL
+             + r"|--(?:git-dir|work-tree|namespace|super-prefix|config-env)(?:=|\s+)" + _QVAL
+             + r"|--[\w-]+(?:=\S+)?|-[pP]))*")
+_GH_REPO = r"(?:\s+(?:-R|--repo)(?:=|\s+)\S+)?"
 OUTWARD = re.compile(
-    r"\bgh\s+(?:issue|pr|release|gist|label)\s+(?:comment|create|edit|close|reopen)\b|"
-    r"\bgit\s+(?:commit|tag)\b|\bgh\s+api\b|"
+    rf"\bgh{_GH_REPO}\s+(?:issue|pr|release|gist|label){_GH_REPO}\s+(?:comment|create|edit|close|reopen)\b|"
+    rf"\bgit{_GIT_OPTS}\s+(?:commit|tag)\b|\bgh{_GH_REPO}\s+api\b|"
     # 送進線上試算表、線上文件、聊天軟體、信件的那幾種。2026-09-15 補：
     # 以前只認 gh 跟 git，所以「把工作日誌寫進 Google 試算表」整段沒被掃過。
     # 拿最近 12 個對話的 4,205 條帶中文指令重放過：多掃 15 條，其餘不變。
@@ -54,11 +63,164 @@ WRITEFILE = re.compile(
 # 暫存目錄裡的東西沒有人會讀到
 SCRATCH = re.compile(r"/tmp/|/private/tmp/|scratchpad|/var/folders/|\.bak$|/dev/null")
 # 這兩種把內文寫在 --body / -m 裡，可以精準挑出來
-GHGIT = re.compile(r"\bgh\s+(?:issue|pr|release|gist|label)\b|\bgit\s+(?:commit|tag)\b|"
-                   r"\bgh\s+api\b")
-# 跑這個 repo 自己的檢查程式不算對外，不然每次自我檢查都會被自己擋住
-SELFTEST = re.compile(r"coined_word_guard|copy_judge|copy_gate_on_edit|complaint_learn|"
-                      r"scenario\.py|copy-samples|copy-rules|toneguard|judge_exam|build_gold")
+GHGIT = re.compile(rf"\bgh{_GH_REPO}\s+(?:issue|pr|release|gist|label)\b|\bgit{_GIT_OPTS}\s+(?:commit|tag)\b|"
+                   rf"\bgh{_GH_REPO}\s+api\b")
+
+# ---- 跑這個 repo 自己的檢查程式與測試，不算對外，不然每次自我檢查都會被自己擋住 ----
+# 2026-11-17 改：以前指令裡任何位置出現 toneguard、copy-rules 這類字就整條放行，
+# 所以 gh 留言前面接一句 echo toneguard &&，留言裡退過的寫法一個字都沒被檢查。
+# 現在只認「執行這個 repo 裡這幾支程式」這種寫法，字出現在路徑、註解、echo 後面都不算。
+# 程式的位置照真正的路徑認，一定要在這個 repo 裡（worktree 也在 repo 底下）。
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+CHECKER = re.compile(
+    r"(?:^|/)hooks/(?:coined_word_guard|copy_judge|copy_gate_on_edit|complaint_learn|intro_shape)\.py$"
+    r"|(?:^|/)copy-(?:rules|samples)/[\w-]+\.py$"
+    r"|(?:^|/)tests/test_[\w-]+\.py$")
+# 跟檢查程式接在一起時可以出現的指令：只會讀東西、印東西，不會送出去、寫檔或執行別的程式。
+# find（-exec）、rg（--pre）、sed（-i）、xargs、sort（-o）、uniq、tree（-o）都能執行或寫檔，所以不在裡面。
+# 只認不帶路徑的名字，/tmp/evil/cat 這種同名程式不算。
+SAFE_PROGS = {"echo", "printf", "true", "grep", "cat", "ls", "head", "tail", "wc", "jq",
+              "cut", "tr", "diff", "stat", "pwd", "which", "realpath"}
+PYTHON_PROG = re.compile(r"^(?:python(?:3(?:\.\d+)?)?|py)$")
+# python 只准這幾個旗標；-c、-m、-i、黏在一起的 -Ic 都會執行檢查程式以外的東西
+PYTHON_FLAGS = {"-u", "-B", "-I", "-s", "-S", "-O", "-OO", "-q", "-E"}
+# 指令前面只准帶這套程式自己的設定；PATH、PYTHONPATH 這類會換掉實際執行的程式
+SAFE_ENV = re.compile(r"^(?:COPY_[A-Z_]+|TONEGUARD_[A-Z_]+|AGY_[A-Z_]+|NO_COLOR|TZ|LANG|LC_[A-Z]+)=")
+SCRATCH_DIRS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
+# 只是在處理輸出，不算寫檔
+HARMLESS_REDIRECT = re.compile(r"\d?>&\d|&>\s*/dev/null|\d?>>?\s*/dev/null")
+# <<'EOF' 加了引號，內文 shell 不會展開，只是餵給前面那支程式的一段字
+QUOTED_HEREDOC = re.compile(r"<<-?[ \t]*(['\"])(\w+)\1")
+
+
+def _mask_quotes(cmd: str):
+    """引號裡的字換成底線、長度不變，切段時才不會把引號裡的 | ; 當成分隔。
+    引號沒有收尾就回 None。"""
+    out, q, i = [], None, 0
+    while i < len(cmd):
+        c = cmd[i]
+        if c == "\\" and q != "'" and i + 1 < len(cmd):
+            out.append("__")
+            i += 2
+            continue
+        if q is None:
+            if c in "'\"":
+                q = c
+            out.append(c)
+        elif c == q:
+            q = None
+            out.append(c)
+        else:
+            out.append("_")
+        i += 1
+    return None if q else "".join(out)
+
+
+def _blank(s: str, a: int, b: int) -> str:
+    return s[:a] + " " * (b - a) + s[b:]
+
+
+def _under(path: str, here):
+    """把指令裡的路徑照目前所在的資料夾解開。相對路徑又不知道在哪個資料夾，就回 None。"""
+    p = pathlib.Path(path).expanduser()
+    if p.is_absolute():
+        return p
+    return here / p if here is not None else None
+
+
+def _strip_quoted_heredocs(cmd: str):
+    """加引號的 heredoc 內文換成空白。heredoc 標記在引號裡、或找不到結尾，就回 None。"""
+    while True:
+        m = QUOTED_HEREDOC.search(cmd)
+        if not m:
+            return cmd
+        nl = cmd.find("\n", m.end())
+        if _mask_quotes(cmd[:m.start()]) is None or nl < 0:
+            return None
+        end = re.compile(rf"^[ \t]*{re.escape(m.group(2))}[ \t]*$", re.M).search(cmd, nl + 1)
+        if not end:
+            return None
+        cmd = _blank(_blank(cmd, nl + 1, end.end()), m.start(), m.end())
+
+
+def is_checker(script: str, here) -> bool:
+    """這支程式是不是這個 repo 的檢查程式或測試：照真正的位置認，一定要在 REPO_ROOT 底下。"""
+    p = _under(script, here)
+    if p is None:
+        return False
+    try:
+        rel = p.resolve().relative_to(REPO_ROOT)
+    except ValueError:
+        return False
+    return bool(CHECKER.search(rel.as_posix()))
+
+
+def _scratch(target: str, here) -> bool:
+    p = _under(target, here)
+    if p is None:
+        return False
+    s = os.path.normpath(str(p))
+    return s == "/dev/null" or s.startswith(SCRATCH_DIRS)
+
+
+def selftest(cmd: str, cwd: str = "") -> bool:
+    """這條指令只是在跑這個 repo 自己的檢查程式或測試。判斷出錯一律當成不是，照常檢查。"""
+    try:
+        return _selftest(cmd, cwd)
+    except Exception:
+        return False
+
+
+def _selftest(cmd: str, cwd: str) -> bool:
+    """照引號把指令切段（&&、||、;、|、&、換行），每一段都要是 cd、echo、讀東西，
+    或是執行 CHECKER 那幾支程式，而且至少要有一段在跑檢查程式。寫檔只准寫進暫存目錄。
+    $(…)、反引號、$'…'、${…}、括號、沒加引號的 heredoc、註解都不放行：
+    這幾種寫法裡可以藏一條送出去的指令，2026-11-17 二審時在 zsh 與 bash 裡實際跑過。"""
+    cmd = _strip_quoted_heredocs(cmd)
+    if cmd is None or re.search(r"\$\(|\$'|\$\{|`|[<>=]\(", cmd):
+        return False
+    masked = _mask_quotes(cmd)
+    if masked is None or "<<" in masked or re.search(r"[()]|(?:^|[\s;&|])#", masked):
+        return False
+    for m in reversed(list(HARMLESS_REDIRECT.finditer(masked))):
+        masked, cmd = _blank(masked, *m.span()), _blank(cmd, *m.span())
+    here = pathlib.Path(cwd).expanduser() if cwd else pathlib.Path.cwd()
+    ran_checker, start = False, 0
+    for m in list(re.finditer(r"&&|\|\||[;|&\n]", masked)) + [None]:
+        end = m.start() if m else len(masked)
+        seg, mseg = cmd[start:end], masked[start:end]
+        start = m.end() if m else end
+        for r in re.finditer(r"\d?>>?\s*(\S+)", mseg):
+            if not _scratch(seg[r.start(1):r.end(1)].strip("'\""), here):
+                return False
+        for r in reversed(list(re.finditer(r"\d?>>?\s*\S+|<\s*\S+", mseg))):
+            seg = _blank(seg, *r.span())
+        toks = shlex.split(seg)
+        while toks and re.match(r"^[A-Za-z_]\w*=", toks[0]):
+            if not SAFE_ENV.match(toks.pop(0)):
+                return False
+        if not toks:
+            continue
+        prog, args = toks[0], toks[1:]
+        if prog == "cd":
+            here = _under(args[0], here) if args and args[0] != "-" else None
+            continue
+        if prog in SAFE_PROGS:
+            continue
+        if not PYTHON_PROG.match(prog):
+            return False
+        i = 0
+        while i < len(args) and args[i].startswith("-"):
+            if args[i] == "-W" and i + 1 < len(args):
+                i += 2
+            elif args[i] in PYTHON_FLAGS:
+                i += 1
+            else:
+                return False
+        if i >= len(args) or not is_checker(args[i], here):
+            return False
+        ran_checker = True
+    return ran_checker
 # 這幾個工具是我在找東西、讀東西、管自己的工作，產出不會有人讀到
 SKIP_TOOLS = re.compile(
     r"^(Read|Glob|Grep|ToolSearch|WebFetch|WebSearch|ListAgents|ListSkills|"
@@ -469,7 +631,7 @@ def from_hook():
 
     if tool == "Bash":
         cmd = ti.get("command") or ""
-        if not OUTWARD.search(cmd) or SELFTEST.search(cmd):
+        if not OUTWARD.search(cmd) or selftest(cmd, payload.get("cwd") or ""):
             # 不是要送出去的指令，還要看它是不是在把中文寫進檔案
             m = WRITEFILE.search(cmd)
             tgt = (m.group("f") or m.group("f2") or "").strip('"\'') if m else ""

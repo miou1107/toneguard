@@ -26,9 +26,19 @@ const EXEMPT = [
   '/.claude/', '/CLAUDE.md', '/AGENTS.md', '/node_modules/', '/docs/verification/',
   '/copy-samples/', '/copy-checklists/', '/.git/', '.test.', '.spec.',
 ]
-// 跟 coined_word_guard.py 的 OUTWARD 同一份：會送到別人眼前的指令
-const OUTWARD = /\bgh\s+(?:issue|pr|release|gist|label)\s+(?:comment|create|edit|close|reopen)\b|\bgit\s+(?:commit|tag)\b|\bgh\s+api\b|gspread|googleapis\.com\/|docs\.google\.com|sheets\.google\.com/
-const SELFTEST = /coined_word_guard|copy_judge|copy_gate_on_edit|complaint_learn|scenario\.py|copy-samples|copy-rules|toneguard|judge_exam|build_gold/
+// 跟 coined_word_guard.py 的 OUTWARD 同一份：會送到別人眼前的指令。
+// git -C 路徑 commit、git -c 設定 commit、gh -R 某 repo issue comment 這種夾了選項的寫法也算。
+const QVAL = String.raw`(?:"[^"]*"|'[^']*'|\S+)`
+const GIT_OPTS = String.raw`(?:\s+(?:-[Cc]\s+${QVAL}|--(?:git-dir|work-tree|namespace|super-prefix|config-env)(?:=|\s+)${QVAL}|--[\w-]+(?:=\S+)?|-[pP]))*`
+const GH_REPO = String.raw`(?:\s+(?:-R|--repo)(?:=|\s+)\S+)?`
+const OUTWARD = new RegExp(
+  String.raw`\bgh${GH_REPO}\s+(?:issue|pr|release|gist|label)${GH_REPO}\s+(?:comment|create|edit|close|reopen)\b|` +
+  String.raw`\bgit${GIT_OPTS}\s+(?:commit|tag)\b|\bgh${GH_REPO}\s+api\b|gspread|googleapis\.com\/|docs\.google\.com|sheets\.google\.com`)
+// 以前這裡還有一份 SELFTEST：指令裡有 toneguard、copy-rules 這類字就不算。
+// 2026-11-17 查出 gh 留言前面接 echo toneguard && 之後，留言完全沒有被檢查，所以拿掉了。
+// 底下的擋門改用 coined_word_guard.selftest 照引號切段，認出 AI 只是在跑這套程式的檢查。
+// 外掛沒有照抄 selftest：自我測試時把假的留言指令接給檢查程式，提醒裡會多列一份留言。
+// 提醒只在回完話時出現，多列一份不會擋到人；少列反而會讓真的送出去的中文沒被注意到。
 // 2026-11-17 只關目前對話的開關（hooks/toneguard_switch.py）。Vin 打 /toneguard-off 之後，
 // 底下的擋門就不再擋；這一行也跟著不補，不然每一輪都在提醒一件他刻意關掉的事。
 // 跟 toneguard_switch.py 用同一份認法：整則訊息一開頭就是指令才算，句子中間提到、貼進來的紀錄都不算。
@@ -53,13 +63,15 @@ const userVisibleCjk = (path: string, text: string) => {
   return false
 }
 
+const gh = (sub: string, verbs: string) =>
+  new RegExp(String.raw`\bgh${GH_REPO}\s+${sub}${GH_REPO}\s+(?:${verbs})\b`)
 const outwardLabel = (cmd: string) => {
-  if (/\bgh\s+issue\s+comment\b/.test(cmd)) return 'issue 留言'
-  if (/\bgh\s+issue\s+(?:create|edit)\b/.test(cmd)) return 'issue 內文'
-  if (/\bgh\s+pr\s+comment\b/.test(cmd)) return 'PR 留言'
-  if (/\bgh\s+pr\s+(?:create|edit)\b/.test(cmd)) return 'PR 內文'
-  if (/\bgit\s+commit\b/.test(cmd)) return 'commit 訊息'
-  if (/\bgit\s+tag\b/.test(cmd)) return 'tag 說明'
+  if (gh('issue', 'comment').test(cmd)) return 'issue 留言'
+  if (gh('issue', 'create|edit').test(cmd)) return 'issue 內文'
+  if (gh('pr', 'comment').test(cmd)) return 'PR 留言'
+  if (gh('pr', 'create|edit').test(cmd)) return 'PR 內文'
+  if (new RegExp(String.raw`\bgit${GIT_OPTS}\s+commit\b`).test(cmd)) return 'commit 訊息'
+  if (new RegExp(String.raw`\bgit${GIT_OPTS}\s+tag\b`).test(cmd)) return 'tag 說明'
   if (/google|gspread/.test(cmd)) return 'Google 文件或試算表'
   return '送出去的指令'
 }
@@ -67,8 +79,10 @@ const outwardLabel = (cmd: string) => {
 // 一條 shell 指令把中文寫進了哪些檔案：printf/echo 加 >、tee、sed -i、heredoc 都算
 const WRITE_OP = /(?:^|[^<])>>?\s*|\btee\b|\bsed\s+-i/
 const PATH_TOKEN = /[^\s"'`|;&<>()]+\.(?:md|html|htm|tsx|jsx|ts|js|mjs|py|vue|svelte)\b/g
+// 2>&1、>/dev/null 只是在處理輸出，不算寫檔
+const HARMLESS_REDIRECT = /\d?>&\d|&>\s*\/dev\/null|\d?>>?\s*\/dev\/null/g
 const writtenFiles = (cmd: string) => {
-  if (!WRITE_OP.test(cmd)) return []
+  if (!WRITE_OP.test(cmd.replace(HARMLESS_REDIRECT, ' '))) return []
   const paths = Array.from(new Set(cmd.match(PATH_TOKEN) ?? []))
   return paths.filter(p => userVisibleCjk(p, cmd)).map(base)
 }
@@ -157,7 +171,7 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (e.agentId === undefined && SWITCH_ON_BASH.test(e.command)) await setOff($, 'on')
-    const isMain = e.agentId === undefined && CJK.test(e.command) && !SELFTEST.test(e.command)
+    const isMain = e.agentId === undefined && CJK.test(e.command)
     const isOutward = isMain && OUTWARD.test(e.command)
     if (isOutward) await addOutput($, 'outward', outwardLabel(e.command))
     const files = isMain ? writtenFiles(e.command) : []

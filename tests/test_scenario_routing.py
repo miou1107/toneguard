@@ -42,7 +42,7 @@ def route(cmd="", path=""):
     if cmd and not path:
         if g is None:
             return "skip"
-        if g.SELFTEST.search(cmd):
+        if g.selftest(cmd, str(ROOT)):
             return "skip"
         t = sc.write_target(g, cmd)
         if not t and not (g.OUTWARD.search(cmd) and sc.HAS_BODY.search(cmd)):

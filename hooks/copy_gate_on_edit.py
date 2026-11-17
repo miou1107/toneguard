@@ -192,6 +192,25 @@ def read_only(cmd: str) -> bool:
     return True
 
 
+def guard_module():
+    """載入 coined_word_guard.py，借它的判斷。載入失敗就回 None。"""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import coined_word_guard
+        return coined_word_guard
+    except Exception:
+        return None
+
+
+def selftest(g, cmd: str, cwd: str) -> bool:
+    """只是在跑這個 repo 自己的檢查程式或測試。判斷寫在 coined_word_guard.selftest，
+    載入失敗或判斷出錯就當成不是，照常檢查。"""
+    try:
+        return bool(g and g.selftest(cmd, cwd))
+    except Exception:
+        return False
+
+
 def script_text(cmd: str, cwd: str) -> str:
     out = []
     for m in SCRIPT_RUN.finditer(cmd):
@@ -269,7 +288,12 @@ def block_copy(what: str) -> int:
 # 所以那一步一直漏。現在 git commit、gh 開單留言、發到 pages 這三個出口，
 # 要送出去的中文檔都要有 agy_review.py 留的回執（內容的 sha256 對得上才算）。
 REVIEW_MIN_ZH = 120   # 跟 copy_judge 一樣：短的交給掃詞那一關就夠
-GIT_COMMIT = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?commit\b")
+# 跟 coined_word_guard.py 的 _GIT_OPTS 同一份：git -C 路徑、git -c 設定、--work-tree 夾在中間也算。
+# 2026-11-17 補：以前只認 -C，git -c user.name=x commit 送出去的中文檔沒查回執。
+GIT_COMMIT = re.compile(
+    r"\bgit(?:\s+(?:-[Cc]\s+(?:\"[^\"]*\"|'[^']*'|\S+)"
+    r"|--(?:git-dir|work-tree|namespace|super-prefix|config-env)(?:=|\s+)(?:\"[^\"]*\"|'[^']*'|\S+)"
+    r"|--[\w-]+(?:=\S+)?|-[pP]))*\s+commit\b")
 PAGES_PUBLISH = re.compile(r"pages\.py\s+(?:publish|update)\s+(\S+)")
 GH_BODY_FILE = re.compile(r"\bgh\s+(?:issue|pr|release)\s+\S+.*?(?:--body-file|-F)\s+(\S+)")
 
@@ -446,20 +470,21 @@ def main() -> int:
                   "看完它的意見、該改的改好，再送一次。改過的檔要再審一次才算數。",
                   file=sys.stderr)
             return 2
+        cwd = payload.get("cwd") or ""
+        g = guard_module()
+        # 在這個 repo 裡跑自己的檢查程式與測試不攔。判斷很嚴：每一段都只能是檢查程式、
+        # cd、echo、讀東西，2026-11-17 以前只要指令裡有 toneguard 這個字就整條放行。
+        if selftest(g, cmd, cwd):
+            return 0
         if not CJK.search(cmd):
-            if read_only(cmd) or not CJK.search(script_text(cmd, payload.get("cwd") or "")):
+            if read_only(cmd) or not CJK.search(script_text(cmd, cwd)):
                 return 0
             if NEEDED <= skills_run(payload.get("session_id", "")):
                 return 0
             return block_copy("這條指令要執行的程式")
-        try:
-            sys.path.insert(0, str(Path(__file__).resolve().parent))
-            import coined_word_guard as g
-            if g.SELFTEST.search(cmd):
-                return 0
-            is_outward = bool(g.OUTWARD.search(cmd))
-        except Exception:
+        if g is None:
             return 0
+        is_outward = bool(g.OUTWARD.search(cmd))
         # 2026-10-03 補：printf/echo 加 >、tee、sed -i 把中文寫進 md 或程式檔，
         # 跟用 Write 工具寫是同一件事，以前這條路整段沒人管（copy-gate mod 實測抓到）。
         written = shell_written_files(cmd)

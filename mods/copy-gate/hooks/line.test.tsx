@@ -230,6 +230,39 @@ test('同一輪有檔案也有送出去的東西：檔名排前面，兩種送�
   expect(logs).toEqual(['ToneGuard：AI 改了 a.md、issue 留言、commit 訊息的中文，沒有過文案 skill'])
 })
 
+// 2026-11-17 查出來：指令裡有 toneguard 這類字，原本就當成在測這套程式，連送出去的留言都不算。
+// 底下的擋門已經改成照常擋，這一行也要照常算，不然 Vin 看不到那一則留言沒有過文案 skill。
+test('留言前面接 echo toneguard：照樣算進那一行', async ($, on) => {
+  const now = { t: T0 }
+  const { logs } = setup(on, now)
+  ok(on)
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'echo toneguard && gh issue comment 48 --body "拆單已修好，rc0.35.124 上測試機"' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
+  expect(logs).toEqual(['ToneGuard：AI 改了 issue 留言的中文，沒有過文案 skill'])
+})
+
+test('在這個 repo 裡跑自己的檢查程式：不算', async ($, on) => {
+  const now = { t: T0 }
+  const { logs } = setup(on, now)
+  ok(on)
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'python3 hooks/coined_word_guard.py --text "旅客會看到今天的行程" 2>&1; echo $?' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
+  expect(logs).toEqual([])
+})
+
+test('git -C 指定資料夾的提交、gh -R 指定 repo 的留言：照樣算進那一行', async ($, on) => {
+  const now = { t: T0 }
+  const { logs } = setup(on, now)
+  ok(on)
+  await ($ as any).turn.start({ text: 'a', turnId: 't1' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'git -C ~/SourceCode/Work/toneguard commit -m "修好拆單"' })
+  await ($ as any).tool.call({ tool: 'Bash', command: 'gh -R miou1107/toneguard issue comment 48 --body "拆單已修好"' })
+  await ($ as any).turn.complete({ ...DONE, turnId: 't1' })
+  expect(logs).toEqual(['ToneGuard：AI 改了 commit 訊息、issue 留言的中文，沒有過文案 skill'])
+})
+
 test('中文檔名：「改了」跟檔名之間不留空格', async ($, on) => {
   const now = { t: T0 }
   const { logs } = setup(on, now)

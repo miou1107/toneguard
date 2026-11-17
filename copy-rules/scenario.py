@@ -224,7 +224,8 @@ def main():
     if cmd and not path:
         if g is None:
             return
-        if g.SELFTEST.search(cmd):
+        selftest = getattr(g, "selftest", None)
+        if selftest and selftest(cmd, p.get("cwd") or ""):
             return
         target = write_target(g, cmd)
         if not target and not (g.OUTWARD.search(cmd) and HAS_BODY.search(cmd)):

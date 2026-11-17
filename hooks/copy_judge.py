@@ -513,7 +513,9 @@ def from_hook():
         try:
             sys.path.insert(0, str(HOME / ".claude" / "hooks"))
             import coined_word_guard as g
-            if not g.OUTWARD.search(cmd) or g.SELFTEST.search(cmd):
+            # 只是在跑這個 repo 自己的檢查程式：引號裡的留言指令是測試資料，不送審
+            selftest = getattr(g, "selftest", None)
+            if not g.OUTWARD.search(cmd) or (selftest and selftest(cmd, payload.get("cwd") or "")):
                 return None, "", ""
             sent = [(m.group("v") or m.group("v2") or "")
                     for m in g.ARGTEXT.finditer(cmd)]
